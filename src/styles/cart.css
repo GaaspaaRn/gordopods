@@ -1,0 +1,122 @@
+/* src/styles/cart.css */
+
+/* Estilos para o carrinho */
+.cart-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.cart-items-container {
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: 1rem;
+}
+
+.cart-footer {
+  position: sticky;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background-color: white;
+  padding: 1rem;
+  border-top: 1px solid #e5e7eb;
+  box-shadow: 0 -4px 6px -1px rgba(0, 0, 0, 0.1);
+  z-index: 10;
+}
+
+/* Estilos para o botão de finalizar pedido em mobile */
+.checkout-button-container-mobile {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 1rem;
+  background-color: white;
+  border-top: 1px solid #e5e7eb;
+  box-shadow: 0 -4px 6px -1px rgba(0, 0, 0, 0.1);
+  z-index: 50;
+}
+
+/* Esconder em desktop */
+@media (min-width: 768px) {
+  .checkout-button-container-mobile {
+    display: none;
+  }
+}
+
+/* Espaçador para evitar que o conteúdo fique escondido atrás do botão fixo */
+.mobile-spacer {
+  height: 5rem;
+  display: block;
+}
+
+@media (min-width: 768px) {
+  .mobile-spacer {
+    display: none;
+  }
+}
+
+/* Ajustes para o item do carrinho */
+.cart-item {
+  display: flex;
+  gap: 1rem;
+  padding: 1rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.cart-item-image {
+  width: 4rem;
+  height: 4rem;
+  flex-shrink: 0;
+  border-radius: 0.375rem;
+  overflow: hidden;
+  background-color: #f3f4f6;
+}
+
+.cart-item-content {
+  flex: 1;
+  min-width: 0; /* Importante para permitir truncamento */
+}
+
+.cart-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+@media (max-width: 640px) {
+  .cart-item-header {
+    flex-direction: column;
+  }
+  
+  .cart-item-price {
+    margin-top: 0.25rem;
+  }
+}
+
+.cart-item-title {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cart-item-variations {
+  margin-top: 0.25rem;
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+
+.cart-item-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 0.75rem;
+}
+
+.cart-quantity-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
