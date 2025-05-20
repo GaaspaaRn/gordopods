@@ -1,82 +1,126 @@
-
 import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
-import { User } from '../types';
+import { User as AppUser } from '../types'; // Renomeie para evitar conflito com User do Supabase
+import { Session, User as SupabaseUser } from '@supabase/supabase-js'; // Importe tipos do Supabase
 import { toast } from 'sonner';
+import { supabase } from '../integrations/supabase/client'; // Importe seu cliente Supabase
 
 interface AuthContextType {
-  user: User | null;
+  user: AppUser | null; // Use seu tipo AppUser aqui
+  session: Session | null; // Adicione a sessão do Supabase
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<boolean>;
-  logout: () => void;
+  logout: () => Promise<void>; // Logout agora pode ser assíncrono
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Updated admin user credentials
-const MOCK_USER: User = {
-  id: '1',
-  email: 'z1k4p0rt0@gmail.com',
-  name: 'Administrador',
-};
-
-// Updated password for the new admin user
-const MOCK_PASSWORD = 'g0rd0p0ds228';
+// REMOVA MOCK_USER e MOCK_PASSWORD - Não serão mais necessários
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<AppUser | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Check if user is logged in from localStorage
-    const storedUser = localStorage.getItem('user');
-    if (storedUser) {
-      try {
-        setUser(JSON.parse(storedUser));
-      } catch (error) {
-        console.error('Failed to parse stored user:', error);
+    setIsLoading(true);
+    // Tenta obter a sessão do Supabase ao carregar
+    supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
+      setSession(currentSession);
+      // Mapeie o SupabaseUser para seu AppUser se necessário, ou use SupabaseUser diretamente
+      // Este é um exemplo simples de mapeamento, ajuste conforme seu tipo AppUser
+      setUser(currentSession?.user ? mapSupabaseUserToAppUser(currentSession.user) : null);
+      setIsLoading(false);
+      console.log("AuthProvider: Sessão inicial carregada:", currentSession);
+    }).catch(error => {
+      console.error("AuthProvider: Erro ao obter sessão inicial:", error);
+      setIsLoading(false);
+    });
+
+    // Ouve mudanças no estado de autenticação
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      async (event, currentSession) => {
+        console.log("AuthProvider: Evento AuthStateChange:", event, currentSession);
+        setSession(currentSession);
+        // Mapeie o SupabaseUser para seu AppUser
+        setUser(currentSession?.user ? mapSupabaseUserToAppUser(currentSession.user) : null);
+        setIsLoading(false);
+
+        // Removido o _saveSession e _removeSession explícitos, pois o cliente Supabase
+        // com persistSession=true já gerencia o localStorage.
       }
-    }
-    setIsLoading(false);
+    );
+
+    return () => {
+      authListener?.subscription.unsubscribe();
+    };
   }, []);
 
-  const login = async (email: string, password: string) => {
+  // Função para mapear SupabaseUser para seu tipo AppUser
+  // Ajuste isso conforme a estrutura do seu tipo AppUser em ../types
+  const mapSupabaseUserToAppUser = (supabaseUser: SupabaseUser): AppUser => {
+    return {
+      id: supabaseUser.id,
+      email: supabaseUser.email || '', // SupabaseUser.email pode ser undefined
+      name: supabaseUser.user_metadata?.full_name || supabaseUser.email?.split('@')[0] || 'Usuário', // Exemplo
+      // Adicione outros campos que seu AppUser possa ter, buscando de user_metadata
+    };
+  };
+
+  const login = async (emailInput: string, passwordInput: string): Promise<boolean> => {
     setIsLoading(true);
-    
     try {
-      // Simulating API call with 500ms delay
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Updated mock authentication with new credentials
-      if (email.toLowerCase() === MOCK_USER.email && password === MOCK_PASSWORD) {
-        setUser(MOCK_USER);
-        localStorage.setItem('user', JSON.stringify(MOCK_USER));
-        toast.success('Login bem-sucedido!');
-        return true;
-      } else {
-        toast.error('Credenciais inválidas');
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: emailInput,
+        password: passwordInput,
+      });
+
+      if (error) {
+        console.error("AuthProvider: Supabase login error:", error);
+        toast.error(error.message || 'Falha no login.');
+        setIsLoading(false);
         return false;
       }
-    } catch (error) {
-      console.error('Login error:', error);
-      toast.error('Erro ao fazer login');
-      return false;
-    } finally {
+
+      // onAuthStateChange já vai atualizar user e session
+      if (data.session && data.user) {
+        toast.success('Login bem-sucedido!');
+        setIsLoading(false);
+        return true;
+      }
+      
+      // Caso inesperado onde não há erro mas também não há sessão/usuário
+      toast.error('Falha no login. Resposta inesperada do servidor.');
       setIsLoading(false);
+      return false;
+
+    } catch (error) {
+      console.error("AuthProvider: Login catch error:", error);
+      toast.error('Erro inesperado ao fazer login.');
+      setIsLoading(false);
+      return false;
     }
   };
 
-  const logout = () => {
-    setUser(null);
-    localStorage.removeItem('user');
-    toast.success('Logout realizado');
+  const logout = async () => {
+    setIsLoading(true);
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      console.error("AuthProvider: Supabase logout error:", error);
+      toast.error(error.message || 'Falha no logout.');
+    } else {
+      // onAuthStateChange já vai limpar user e session
+      toast.success('Logout realizado');
+    }
+    setIsLoading(false);
   };
 
   return (
     <AuthContext.Provider
       value={{
         user,
-        isAuthenticated: !!user,
+        session, // Exponha a sessão se precisar dela em outros lugares
+        isAuthenticated: !!user && !!session, // Autenticado se tiver usuário E sessão
         isLoading,
         login,
         logout,
