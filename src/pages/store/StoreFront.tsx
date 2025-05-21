@@ -38,7 +38,7 @@ export default function StoreFront() {
   }, []);
   
   if (isLoadingSettings || isLoadingProducts || isLoadingCategories) {
-    return ( /* ... seu loader ... */ );
+    return ( /* ... seu loader ... */ )
   }
 
   const primaryColor = storeSettings.primaryColor || '#9b87f5';
