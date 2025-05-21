@@ -1,262 +1,210 @@
 import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
-import { Category } from '../types';
+import { Category } from '../types'; // Certifique-se que seu tipo Category reflita as colunas do DB
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from './AuthContext'; // 1. Importe useAuth
+import { useAuth } from './AuthContext';
 
 interface CategoryContextType {
   categories: Category[];
   isLoading: boolean;
-  createCategory: (name: string) => Promise<void>; // Funções CRUD agora são async
-  updateCategory: (id: string, name: string) => Promise<void>;
+  // Ajuste os parâmetros de createCategory se você não tiver imageUrl ou order
+  createCategory: (name: string, description?: string, active?: boolean) => Promise<string | null>;
+  updateCategory: (id: string, updates: Partial<Omit<Category, 'id' | 'createdAt' | 'updatedAt' | 'order' | 'imageUrl'>>) => Promise<void>;
   deleteCategory: (id: string) => Promise<void>;
-  reorderCategories: (newOrder: Category[]) => Promise<void>;
+  // reorderCategories pode não ser necessário se não houver coluna de ordem
+  // Se você quiser ordenar por nome ou data no frontend, isso pode ser feito no momento da exibição.
+  // Se precisar persistir uma ordem, você precisará de uma coluna 'order_position'
+  // reorderCategories: (orderedCategories: Category[]) => Promise<void>; 
 }
 
 const CategoryContext = createContext<CategoryContextType | undefined>(undefined);
 
-// Mock inicial (mantenha sua lógica de fallback se desejar)
-const initialCategories: Category[] = [
-  { 
-    id: '1', 
-    name: 'Pods de Fruta', 
-    description: '',
-    imageUrl: '',
-    active: true,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    order: 0 
-  },
-  // ... seus outros mocks ...
-];
+const initialCategories: Category[] = [];
 
 export function CategoryProvider({ children }: { children: ReactNode }) {
-  const { isAuthenticated, isLoading: authIsLoading } = useAuth(); // 2. Use o estado de autenticação
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [isLoading, setIsLoading] = useState(true); // Loading do próprio CategoryContext
+  const { isAuthenticated, isLoading: authIsLoading } = useAuth();
+  const [categories, setCategories] = useState<Category[]>(initialCategories);
+  const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    const loadCategories = async () => {
-      // 3. Adicione a condição para buscar dados
-      if (isAuthenticated && !authIsLoading) {
-        setIsLoading(true);
-        try {
-          console.log('[CategoryContext] Usuário autenticado, buscando categorias do Supabase...');
-          const { data, error } = await supabase
-            .from('categories')
-            .select('*')
-            .order('updated_at', { ascending: false }); // Considere order 'order' ou 'name' se relevante
-          
-          if (error) {
-            console.error('Erro ao carregar categorias do Supabase:', error);
-            toast.error(`Erro Supabase: ${error.message}`);
-            const storedCategories = localStorage.getItem('gordopods-categories');
-            setCategories(storedCategories ? JSON.parse(storedCategories) : initialCategories);
-          } else {
-            const categoriesData = data.map((item, index) => ({
-              id: item.id,
-              name: item.name,
-              description: item.description || '',
-              imageUrl: item.image_url || '', // Ajuste se o nome da coluna for diferente
-              active: item.active === undefined ? true : item.active,
-              createdAt: item.created_at,
-              updatedAt: item.updated_at,
-              order: item.order_position === undefined ? index : item.order_position, // Ajuste se o nome da coluna for diferente
-            })) as Category[];
-            
-            setCategories(categoriesData);
-            localStorage.setItem('gordopods-categories', JSON.stringify(categoriesData));
-            console.log('[CategoryContext] Categorias carregadas do Supabase:', categoriesData);
-          }
-        } catch (error: any) {
-          console.error('Erro ao carregar categorias (bloco catch):', error);
-          toast.error(`Erro inesperado: ${error.message}`);
-          const storedCategories = localStorage.getItem('gordopods-categories');
-          setCategories(storedCategories ? JSON.parse(storedCategories) : initialCategories);
-        } finally {
-          setIsLoading(false);
-        }
-      } else if (!authIsLoading && !isAuthenticated) {
-        // Usuário não está autenticado e o auth já carregou.
-        console.log('[CategoryContext] Usuário não autenticado. Carregando do localStorage ou iniciais.');
-        const storedCategories = localStorage.getItem('gordopods-categories');
-        setCategories(storedCategories ? JSON.parse(storedCategories) : initialCategories);
-        setIsLoading(false);
-      } else if (authIsLoading) {
-        console.log('[CategoryContext] Aguardando status de autenticação...');
-        // Mantém isLoading como true ou o estado atual, dependendo da sua preferência
-        // Pode ser útil setar setIsLoading(true) aqui se quiser um feedback de loading mais explícito
-      }
-    };
-    
-    loadCategories();
-  }, [isAuthenticated, authIsLoading]); // 4. Adicione isAuthenticated e authIsLoading como dependências
-
-  // Save categories to localStorage whenever they change (esta parte parece OK)
-  useEffect(() => {
-    if (!isLoading && categories.length > 0) { // Só salva se não estiver carregando e tiver categorias
-      localStorage.setItem('gordopods-categories', JSON.stringify(categories));
-    }
-  }, [categories, isLoading]);
-
-  // Funções CRUD (create, update, delete, reorder) - já parecem OK em termos de Supabase
-  // Apenas certifique-se que as chamadas ao Supabase estão corretas e
-  // que as RLS no Supabase permitem essas operações para usuários autenticados.
-  // Adicionei async/await e retornos de Promise para consistência.
-
-  const createCategory = async (name: string) => {
+  const loadCategories = async () => {
+    console.log('[CategoryContext] (loadCategories) Tentando buscar categorias do Supabase...');
     try {
-      setIsLoading(true);
-      // ... (sua lógica de validação e criação) ...
-       const now = new Date().toISOString();
-       const newId = crypto.randomUUID();
-       // Use a ordem atual + 1 ou busque a maior ordem do banco
-       const newOrder = categories.length > 0 ? Math.max(...categories.map(c => c.order)) + 1 : 0;
-      
-      const newCategoryData = { // Dados para o Supabase
-        id: newId,
-        name: name.trim(),
-        description: '',
-        active: true,
-        created_at: now,
-        updated_at: now,
-        // order_position: newOrder, // Se você tiver essa coluna no Supabase
-      };
-
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('categories')
-        .insert(newCategoryData);
-      
-      if (error) {
-        console.error('Erro ao criar categoria no Supabase:', error);
-        toast.error(`Erro Supabase: ${error.message}`);
-        return;
-      }
-      
-      const appCategory: Category = { // Dados para o estado local
-        ...newCategoryData,
-        imageUrl: '', // Adicione campos que faltam para o tipo Category local
-        order: newOrder,
-        createdAt: newCategoryData.created_at, // Garanta consistência
-        updatedAt: newCategoryData.updated_at,
-      };
+        .select('*')
+        // Se não há 'order_position', ordene por 'name' ou 'created_at'
+        .order('name', { ascending: true }); 
 
-      setCategories(prev => [...prev, appCategory].sort((a,b) => a.order - b.order));
-      toast.success('Categoria criada com sucesso!');
+      console.log('[CategoryContext] (loadCategories) Resultado - Error:', error);
+
+      if (error) {
+        console.error('Erro ao carregar categorias (loadCategories):', error);
+      }
+
+      let currentCategories = initialCategories;
+      if (data && data.length > 0) {
+        const categoriesData = data.map((item) => ({ // Removido index se não usado para 'order'
+          id: item.id,
+          name: item.name,
+          description: item.description || '',
+          // imageUrl: item.image_url || '', // Removido se não existe
+          active: item.active !== undefined ? item.active : true,
+          createdAt: item.created_at,
+          updatedAt: item.updated_at,
+          // order: item.order_position !== undefined ? item.order_position : index, // Removido se não existe
+        })) as Omit<Category, 'imageUrl' | 'order'>[]; // Ajuste o tipo se necessário
+        
+        // Para satisfazer o tipo Category completo, adicione valores padrão se as props opcionais não vierem do DB
+        currentCategories = categoriesData.map(c => ({
+            ...c,
+            imageUrl: c.imageUrl || '', // Mantém se o tipo Category tem, mas DB não
+            order: c.order || 0,       // Mantém se o tipo Category tem, mas DB não
+        }));
+
+        console.log('[CategoryContext] (loadCategories) Categorias carregadas/recarregadas do Supabase.');
+        localStorage.setItem('gordopods-categories', JSON.stringify(currentCategories));
+      } else if (!error) {
+        console.log('[CategoryContext] (loadCategories) Nenhuma categoria no Supabase, tentando localStorage...');
+        const storedCategories = localStorage.getItem('gordopods-categories');
+        if (storedCategories) currentCategories = JSON.parse(storedCategories);
+        else console.log('[CategoryContext] (loadCategories) Nenhuma categoria no localStorage.');
+      } else {
+          console.log('[CategoryContext] (loadCategories) Erro ao buscar do Supabase, tentando localStorage...');
+          const storedCategories = localStorage.getItem('gordopods-categories');
+          if (storedCategories) currentCategories = JSON.parse(storedCategories);
+      }
+      setCategories(currentCategories);
     } catch (error: any) {
-      console.error('Erro ao criar categoria:', error);
-      toast.error(`Erro inesperado: ${error.message}`);
-    } finally {
-      setIsLoading(false);
+      console.error('Erro crítico em loadCategories:', error);
+      setCategories(initialCategories);
     }
   };
 
-  const updateCategory = async (id: string, name: string) => {
+  useEffect(() => {
+    const initialLoad = async () => {
+        console.log('[CategoryContext] (useEffect) Iniciando fetch de categorias. Auth loading:', authIsLoading);
+        setIsLoading(true);
+        await loadCategories();
+        if (!authIsLoading) {
+            setIsLoading(false);
+        }
+    }
+    initialLoad();
+  }, [authIsLoading]);
+
+  useEffect(() => {
+    if (!authIsLoading && isLoading) {
+      setIsLoading(false);
+    }
+  }, [authIsLoading, isLoading]);
+
+  useEffect(() => {
+    if (!isLoading && !authIsLoading) {
+      if (categories.length > 0 || localStorage.getItem('gordopods-categories')) {
+        localStorage.setItem('gordopods-categories', JSON.stringify(categories));
+      }
+    }
+  }, [categories, isLoading, authIsLoading]);
+
+  const createCategory = async (
+    name: string,
+    description: string = '',
+    active: boolean = true
+  ): Promise<string | null> => {
+    if (!isAuthenticated) { toast.error("Login necessário para criar categoria."); return null; }
+    setIsLoading(true);
     try {
-      setIsLoading(true);
-      // ... (sua lógica de validação e atualização) ...
-      const now = new Date().toISOString();
+      const categoryToInsert = {
+        name: name.trim(),
+        description,
+        active,
+        // Removido image_url e order_position se não existem no DB
+      };
+      console.log('Dados enviados para criar categoria:', JSON.stringify(categoryToInsert, null, 2));
+      const { data: newCategory, error } = await supabase
+        .from('categories')
+        .insert(categoryToInsert)
+        .select()
+        .single();
+      if (error || !newCategory) throw error || new Error("Falha ao criar categoria");
+      await loadCategories();
+      toast.success('Categoria criada com sucesso!');
+      setIsLoading(false);
+      return newCategory.id;
+    } catch (error: any) {
+      console.error('Erro ao criar categoria:', error);
+      toast.error(`Erro ao criar categoria: ${error.message}`);
+      setIsLoading(false);
+      return null;
+    }
+  };
+
+  const updateCategory = async (id: string, updates: Partial<Omit<Category, 'id' | 'createdAt' | 'updatedAt' | 'order' | 'imageUrl'>>) => {
+    if (!isAuthenticated) { toast.error("Login necessário para atualizar categoria."); return; }
+    setIsLoading(true);
+    try {
+      const dbUpdates: any = { updated_at: new Date().toISOString() };
+      if (updates.name !== undefined) dbUpdates.name = updates.name.trim();
+      if (updates.description !== undefined) dbUpdates.description = updates.description;
+      if (updates.active !== undefined) dbUpdates.active = updates.active;
+      // Removido image_url e order_position
+      console.log(`Dados enviados para atualizar categoria (ID: ${id}):`, JSON.stringify(dbUpdates, null, 2));
       const { error } = await supabase
         .from('categories')
-        .update({ name: name.trim(), updated_at: now })
+        .update(dbUpdates)
         .eq('id', id);
-      
-      if (error) {
-        console.error('Erro ao atualizar categoria no Supabase:', error);
-        toast.error(`Erro Supabase: ${error.message}`);
-        return;
-      }
-      
-      setCategories(
-        categories.map(category => 
-          category.id === id ? { ...category, name: name.trim(), updatedAt: now } : category
-        )
-      );
+      if (error) throw error;
+      await loadCategories();
       toast.success('Categoria atualizada com sucesso!');
     } catch (error: any) {
       console.error('Erro ao atualizar categoria:', error);
-      toast.error(`Erro inesperado: ${error.message}`);
+      toast.error(`Erro ao atualizar categoria: ${error.message}`);
     } finally {
       setIsLoading(false);
     }
   };
 
   const deleteCategory = async (id: string) => {
+    if (!isAuthenticated) { toast.error("Login necessário para excluir categoria."); return; }
+    setIsLoading(true);
     try {
-      setIsLoading(true);
-      // ... (sua lógica de verificação e exclusão) ...
-      const { data: productsWithCategory, error: checkError } = await supabase
+      const { count, error: checkError } = await supabase
         .from('products')
-        .select('id', { count: 'exact' }) // Usar count para eficiência
+        .select('*', { count: 'exact', head: true })
         .eq('category_id', id);
-        
-      if (checkError) {
-        console.error('Erro ao verificar produtos da categoria:', checkError);
-        toast.error(`Erro Supabase: ${checkError.message}`);
+      if (checkError) throw checkError;
+      if (count !== null && count > 0) {
+        toast.error(`Não é possível excluir: categoria possui ${count} produtos associados.`);
+        setIsLoading(false);
         return;
       }
-      
-      if (productsWithCategory && productsWithCategory.length > 0) {
-        toast.error(`Não é possível excluir: categoria possui ${productsWithCategory.length} produtos associados.`);
-        return;
-      }
-      
-      const { error } = await supabase
-        .from('categories')
-        .delete()
-        .eq('id', id);
-      
-      if (error) {
-        console.error('Erro ao excluir categoria do Supabase:', error);
-        toast.error(`Erro Supabase: ${error.message}`);
-        return;
-      }
-      
-      const updatedCategories = categories.filter(category => category.id !== id);
-      // Reordenar não é estritamente necessário no cliente após deleção,
-      // a menos que sua UI dependa de uma sequência 'order' contínua.
-      // A ordem ao buscar do Supabase (ex: por nome ou created_at) pode ser mais confiável.
-      setCategories(updatedCategories);
+      console.log(`Tentando deletar categoria com ID: ${id}`);
+      const { error } = await supabase.from('categories').delete().eq('id', id);
+      if (error) throw error;
+      await loadCategories();
       toast.success('Categoria excluída com sucesso!');
     } catch (error: any) {
       console.error('Erro ao excluir categoria:', error);
-      toast.error(`Erro inesperado: ${error.message}`);
+      toast.error(`Erro ao excluir categoria: ${error.message}`);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const reorderCategories = async (newOrder: Category[]) => {
-    try {
-      setIsLoading(true);
-      const updatedCategories = newOrder.map((category, index) => ({
-        ...category,
-        order: index, // Atualiza a ordem local
-        updatedAt: new Date().toISOString()
-      }));
-      
-      // Atualizar a ordem (order_position) e updated_at no Supabase
-      // Idealmente, fazer isso em uma transação ou batch se o Supabase JS suportar facilmente
-      for (const category of updatedCategories) {
-        const { error } = await supabase
-          .from('categories')
-          .update({ 
-            // order_position: category.order, // Se você tem esta coluna no Supabase
-            updated_at: category.updatedAt 
-          })
-          .eq('id', category.id);
-        if (error) throw error; // Lança o erro para ser pego pelo catch
-      }
-      
-      setCategories(updatedCategories);
-      toast.success('Ordem das categorias atualizada!');
-    } catch (error: any) {
-      console.error('Erro ao reordenar categorias:', error);
-      toast.error(error.message || 'Ocorreu um erro ao reordenar as categorias');
-    } finally {
-      setIsLoading(false);
-    }
+  // Se você não tem uma coluna 'order_position' no DB, a função reorderCategories
+  // não tem como persistir a ordem no backend. Você pode removê-la do contexto
+  // ou implementá-la apenas para reordenar no frontend se for necessário para a UI,
+  // mas a ordem não será salva. Vou comentá-la por enquanto.
+  /*
+  const reorderCategories = async (orderedCategories: Category[]) => {
+    if (!isAuthenticated) { toast.error("Login necessário para reordenar categorias."); return; }
+    // Se não houver coluna de ordem no DB, esta função não pode persistir a ordem.
+    // Você pode atualizar o estado local para refletir a nova ordem na UI,
+    // mas ela será perdida no próximo carregamento.
+    setCategories(orderedCategories.map((cat, index) => ({ ...cat, order: index })));
+    toast.info('Ordem das categorias atualizada localmente (sem persistência no DB).');
   };
+  */
 
   return (
     <CategoryContext.Provider
@@ -266,7 +214,7 @@ export function CategoryProvider({ children }: { children: ReactNode }) {
         createCategory,
         updateCategory,
         deleteCategory,
-        reorderCategories,
+        // reorderCategories, // Removido se não houver persistência de ordem
       }}
     >
       {children}
