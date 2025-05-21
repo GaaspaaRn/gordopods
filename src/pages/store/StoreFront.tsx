@@ -38,7 +38,14 @@ export default function StoreFront() {
   }, []);
   
   if (isLoadingSettings || isLoadingProducts || isLoadingCategories) {
-    return ( /* ... seu loader ... */ )
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-t-primary border-r-transparent border-b-transparent border-l-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-lg">Carregando loja...</p>
+        </div>
+      </div>
+    ); // <--- PONTO E VÍRGULA AQUI
   }
 
   const primaryColor = storeSettings.primaryColor || '#9b87f5';
