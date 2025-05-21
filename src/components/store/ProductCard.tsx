@@ -68,16 +68,35 @@ const ProductCard = ({ product }: ProductCardProps) => {
   return (
     <>
       <Card className="h-full overflow-hidden hover:shadow-md transition">
-        {/* Card Content como antes - omitido para brevidade */}
         <div className="h-48 bg-gray-100 overflow-hidden cursor-pointer" onClick={handleOpenDialog}>
-          {mainImage ? ( <img src={mainImage.url} alt={product.name} className="h-full w-full object-cover" onError={(e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.src = "https://via.placeholder.com/300?text=Imagem"; }} /> ) : ( <div className="h-full w-full flex items-center justify-center bg-gray-200"> <span className="text-gray-400">Sem imagem</span> </div> )}
+          {mainImage ? (
+            <img
+              src={mainImage.url}
+              alt={product.name}
+              className="h-full w-full object-cover"
+              onError={(e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.src = "https://via.placeholder.com/300?text=Imagem"; }}
+            />
+          ) : (
+            <div className="h-full w-full flex items-center justify-center bg-gray-200">
+              <span className="text-gray-400">Sem imagem</span>
+            </div>
+          )}
         </div>
+        
         <CardContent className="p-4">
-          <h3 className="font-medium cursor-pointer hover:text-primary" onClick={handleOpenDialog}> {product.name} </h3>
-          <p className="text-gray-500 text-sm mt-1 line-clamp-2"> {product.description.substring(0, 100)}{product.description.length > 100 ? '...' : ''} </p>
+          <h3 className="font-medium cursor-pointer hover:text-primary" onClick={handleOpenDialog}>
+            {product.name}
+          </h3>
+          <p className="text-gray-500 text-sm mt-1 line-clamp-2">
+            {product.description.substring(0, 100)}{product.description.length > 100 ? '...' : ''}
+          </p>
           <div className="mt-2 flex items-center justify-between">
-            <span className="font-bold" style={{ color: 'var(--secondary-color)' }}> {product.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} </span>
-            <Button size="sm" variant="outline" onClick={handleOpenDialog} disabled={isOutOfStock}> {isOutOfStock ? "Esgotado" : <>Ver detalhes</>} </Button>
+            <span className="font-bold" style={{ color: 'var(--secondary-color)' }}>
+              {product.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+            </span>
+            <Button size="sm" variant="outline" onClick={handleOpenDialog} disabled={isOutOfStock}>
+              {isOutOfStock ? "Esgotado" : <>Ver detalhes</>}
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -88,43 +107,50 @@ const ProductCard = ({ product }: ProductCardProps) => {
           resetForm();
         }
       }}>
-        <DialogContent className="w-[90vw] max-w-sm sm:max-w-md md:max-w-[500px] max-h-[90vh] flex flex-col rounded-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]">
-          {/* Removido p-0 do DialogContent, permitindo padding padrão que ajuda o X */}
-          <DialogHeader> {/* O padding padrão do DialogContent aplicará espaçamento aqui */}
+        <DialogContent className="w-[90vw] max-w-sm sm:max-w-md md:max-w-[500px] max-h-[90vh] flex flex-col rounded-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95">
+          {/* O DialogContent do shadcn/ui geralmente tem padding p-6. Se precisar de p-0, adicione aqui. */}
+          {/* Se p-0, o DialogHeader precisará de padding próprio e o X pode precisar de posicionamento manual. */}
+          {/* Por simplicidade, vou assumir o padding padrão do DialogContent. */}
+          
+          <DialogHeader>
             <DialogTitle>{product.name}</DialogTitle>
             {/* Botão X do shadcn/ui é renderizado aqui pelo DialogContent */}
           </DialogHeader>
           
-          {/* Esta div agora contém TODO o conteúdo rolável */}
-          {/* O padding padrão do DialogContent (geralmente p-6) já será aplicado aqui se não tiver p-0 acima */}
-          <div className="flex-grow overflow-y-auto space-y-3 md:space-y-4 pt-0"> {/* Ajustado padding e space */}
+          {/* Esta div será a área principal de conteúdo rolável */}
+          <div className="flex-grow overflow-y-auto space-y-3 md:space-y-4 pr-3 sm:pr-4 pl-3 sm:pl-4 pb-3 sm:pb-4"> {/* Adicionado padding aqui, pois DialogContent pode ter p-0 para o X */}
             <ProductImageGallery images={product.images} productName={product.name} />
             
             {product.description && (
-                <div className="pt-2"> {/* Adicionado pt-2 para separar da imagem */}
+                <div className="pt-2">
                     <h4 className="font-medium mb-0.5 text-sm">Descrição</h4>
                     <p className="text-xs sm:text-sm text-gray-600 leading-snug whitespace-pre-wrap">{product.description}</p>
                 </div>
             )}
 
-            <div className="flex justify-between items-center pt-2"> {/* Adicionado pt-2 */}
+            <div className="flex justify-between items-center pt-2">
               <div>
                 <h4 className="font-medium text-sm">Preço</h4>
                 <p className="text-lg font-bold" style={{ color: 'var(--secondary-color)' }}>
-                  {calculatedPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                  {calculatedPrice.toLocaleString('pt-BR', {
+                    style: 'currency',
+                    currency: 'BRL'
+                  })}
                 </p>
               </div>
               {product.stockControl && typeof product.stockQuantity === 'number' && (
                 <div className="text-right">
                   <span className={`text-xs sm:text-sm font-medium ${product.stockQuantity > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {product.stockQuantity > 0 ? `${product.stockQuantity} disponíveis` : "Fora de estoque"}
+                    {product.stockQuantity > 0 
+                      ? `${product.stockQuantity} disponíveis` 
+                      : "Fora de estoque"}
                   </span>
                 </div>
               )}
             </div>
             
             {product.variationGroups.length > 0 && (
-              <div className="border-t pt-3 mt-2"> {/* Ajustado padding e margin */}
+              <div className="border-t pt-3 mt-2">
                 <ProductVariations 
                   variationGroups={product.variationGroups}
                   onVariationsChange={handleVariationsChange}
@@ -132,9 +158,8 @@ const ProductCard = ({ product }: ProductCardProps) => {
               </div>
             )}
             
-            {/* Quantidade e Botão Adicionar ao Carrinho DENTRO da área rolável */}
             {!isOutOfStock && (
-              <div className="border-t pt-3 mt-2 space-y-3 md:space-y-4"> {/* Ajustado padding, margin e space */}
+              <div className="border-t pt-3 mt-2 space-y-3 md:space-y-4">
                 <div>
                     <Label htmlFor={`quantity-${product.id}-modal`} className="text-xs sm:text-sm mb-1 block">Quantidade</Label>
                     <div className="flex items-center">
@@ -160,9 +185,10 @@ const ProductCard = ({ product }: ProductCardProps) => {
                 </div>
 
                 <Button 
-                  className="w-full py-2.5 sm:py-3 text-sm sm:text-base"
+                  className="w-full py-2.5 sm:py-3 text-sm sm:text-base text-white" // Adicionado text-white
                   onClick={handleAddToCart}
-                  style={{ backgroundColor: 'var(--secondary-color)', color: 'white' }} // Cor secundária aplicada
+                  // Aplicando a cor #0974f1 ao botão "Adicionar ao Carrinho"
+                  style={{ backgroundColor: '#0974f1' }} 
                 >
                   <ShoppingCart className="mr-2" size={16} />
                   Adicionar ao Carrinho
@@ -171,7 +197,7 @@ const ProductCard = ({ product }: ProductCardProps) => {
             )}
 
             {isOutOfStock && (
-               <div className="border-t pt-3 mt-2"> {/* Ajustado padding e margin */}
+               <div className="border-t pt-3 mt-2">
                  <Button 
                    className="w-full py-2.5 sm:py-3 text-sm sm:text-base"
                    disabled={true}
@@ -180,7 +206,7 @@ const ProductCard = ({ product }: ProductCardProps) => {
                  </Button>
                </div>
             )}
-          </div> {/* Fim do conteúdo principal rolável */}
+          </div> {/* Fim do conteúdo rolável */}
         </DialogContent>
       </Dialog>
     </>
