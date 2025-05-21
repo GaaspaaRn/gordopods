@@ -193,7 +193,7 @@ export default function StoreFront() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="bg-white rounded-lg shadow-sm p-4 md:p-6 w-fit mx-auto"> {/* MODIFICADO: Adicionado w-fit e mx-auto */}
             <h1 className="text-2xl font-bold mb-4" style={{ color: primaryColor }}>
-              {storeSettings.storeName}
+              Pods Descartáveis {/* <--- MODIFICADO AQUI */}
             </h1>
             
             {storeSettings.description && (
