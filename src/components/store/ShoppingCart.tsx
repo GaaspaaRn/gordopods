@@ -1,15 +1,16 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState } from 'react';
 import {
   Sheet,
-  // SheetClose, // Não é necessário importar se o X padrão for usado
+  SheetClose,
   SheetContent,
-  // SheetFooter, // Usaremos nossa própria div para o footer fixo
+  SheetFooter,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ShoppingCart as CartIcon, Plus, Minus, Trash2, ArrowRight, Send, ChevronLeft } from "lucide-react";
+import { ShoppingCart as CartIcon, Plus, Minus, Trash2, ArrowRight, Send } from "lucide-react";
 import { useCart } from "@/contexts/CartContext";
 import { useStoreSettings } from "@/contexts/StoreSettingsContext";
 import { Textarea } from "@/components/ui/textarea";
@@ -24,21 +25,25 @@ import { Neighborhood, Order } from "@/types";
 import { toast } from "sonner";
 import { formatCurrency } from "@/utils/format";
 
+// Define checkout steps
 enum CheckoutStep {
   CART_REVIEW,
   DELIVERY_OPTIONS,
   CUSTOMER_INFO
 }
 
+// Form schema for validation
 const customerFormSchema = z.object({
-  name: z.string().min(3, { message: "O nome deve ter pelo menos 3 caracteres." }),
+  name: z.string().min(3, {
+    message: "O nome deve ter pelo menos 3 caracteres.",
+  }),
   phone: z.string()
-    .min(14, { message: "Telefone inválido. Use (XX) XXXXX-XXXX" })
-    .max(15, { message: "Telefone inválido." })
+    .min(14, { message: "Telefone inválido" })
+    .max(15, { message: "Telefone inválido" })
     .refine((val) => /^\(\d{2}\) \d{5}-\d{4}$/.test(val), {
       message: "Formato inválido. Use (XX) XXXXX-XXXX",
     }),
-  deliveryOption: z.string({ required_error: "Selecione uma opção de entrega."}).min(1, "Selecione uma opção de entrega."),
+  deliveryOption: z.string(),
   neighborhood: z.string().optional(),
   street: z.string().optional(),
   number: z.string().optional(),
@@ -50,324 +55,747 @@ const customerFormSchema = z.object({
 type CustomerFormValues = z.infer<typeof customerFormSchema>;
 
 const ShoppingCart = () => {
-  const { cart, isCartOpen, toggleCart, closeCart, updateQuantity, removeItem, saveOrderToDatabase, clearCart } = useCart();
+  const { cart, isCartOpen, toggleCart, closeCart, updateQuantity, removeItem, saveOrderToDatabase } = useCart();
   const { deliverySettings, storeConfig, storeSettings } = useStoreSettings();
   
+  // State for checkout steps
   const [currentStep, setCurrentStep] = useState<CheckoutStep>(CheckoutStep.CART_REVIEW);
+  
+  // State for processing order
   const [isProcessingOrder, setIsProcessingOrder] = useState(false);
+  
+  // Selected delivery option and cost
   const [deliveryCost, setDeliveryCost] = useState(0);
   const [selectedNeighborhood, setSelectedNeighborhood] = useState<Neighborhood | null>(null);
 
+  // Initialize form with react-hook-form and default delivery option
+  // Garante que temos valores padrão seguros mesmo que deliverySettings esteja undefined temporariamente
   const defaultDeliveryOption = 
     deliverySettings?.pickup?.enabled ? "pickup" : 
     deliverySettings?.fixedRate?.enabled ? "fixedRate" : 
-    deliverySettings?.neighborhoodRates?.enabled ? "neighborhood" : "";
+    deliverySettings?.neighborhoodRates?.enabled ? "neighborhood" : "pickup";
   
+  // Initialize form with react-hook-form
   const form = useForm<CustomerFormValues>({
     resolver: zodResolver(customerFormSchema),
-    defaultValues: { name: "", phone: "", deliveryOption: defaultDeliveryOption, neighborhood: "", street: "", number: "", complement: "", district: "", notes: "" },
+    defaultValues: {
+      name: "",
+      phone: "",
+      deliveryOption: defaultDeliveryOption,
+      neighborhood: "",
+      street: "",
+      number: "",
+      complement: "",
+      district: "",
+      notes: "",
+    },
   });
-
-  useEffect(() => {
-    if (deliverySettings && form.getValues("deliveryOption") === "") { 
-      const newDefaultDeliveryOption = 
-        deliverySettings.pickup?.enabled ? "pickup" : 
-        deliverySettings.fixedRate?.enabled ? "fixedRate" : 
-        deliverySettings.neighborhoodRates?.enabled ? "neighborhood" : "";
-      if (newDefaultDeliveryOption){
-        form.setValue("deliveryOption", newDefaultDeliveryOption);
-        handleDeliveryOptionChange(newDefaultDeliveryOption); // Atualiza custo
-      }
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deliverySettings, form.setValue, form.getValues]);
-
-  const { field: phoneFormField } = form.register("phone");
-
+  
+  // Phone input mask helper function
   const handlePhoneInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     let value = e.target.value.replace(/\D/g, '');
-    if (value.length > 11) value = value.substring(0, 11);
-    
-    let formattedValue = "";
-    if (value.length > 0) formattedValue = `(${value.slice(0, 2)}`;
-    if (value.length > 2) formattedValue += `) ${value.slice(2, 7)}`;
-    if (value.length > 7) formattedValue += `-${value.slice(7, 11)}`;
-    
-    phoneFormField.onChange(formattedValue);
+    if (value.length <= 11) {
+      // Format as (XX) XXXXX-XXXX
+      if (value.length > 2) {
+        value = `(${value.slice(0, 2)}) ${value.slice(2)}`;
+      }
+      if (value.length > 9) {
+        value = `${value.slice(0, 10)}-${value.slice(10)}`;
+      }
+      form.setValue("phone", value);
+    }
   };
   
-  const calculateTotal = () => cart.subtotal + deliveryCost;
+  // Calculate total with delivery
+  const calculateTotal = () => {
+    return cart.subtotal + deliveryCost;
+  };
   
+  // Handle delivery option change
   const handleDeliveryOptionChange = (value: string) => {
     form.setValue("deliveryOption", value);
-    let cost = 0;
+    
+    // Reset delivery cost
+    setDeliveryCost(0);
+    
+    // Update delivery cost based on option
     if (value === "fixedRate" && deliverySettings?.fixedRate?.enabled) {
-      cost = deliverySettings.fixedRate.fee;
-    } else if (value === "neighborhood") {
-      const currentNeighborhoodId = form.getValues("neighborhood");
-      if (currentNeighborhoodId) {
-        const neighborhood = deliverySettings?.neighborhoodRates?.neighborhoods.find(n => n.id === currentNeighborhoodId);
-        if (neighborhood) cost = neighborhood.fee;
-      }
+      setDeliveryCost(deliverySettings.fixedRate.fee);
+    } else if (value === "neighborhood" && selectedNeighborhood) {
+      setDeliveryCost(selectedNeighborhood.fee);
     }
-    setDeliveryCost(cost);
+    
+    // Reset neighborhood if not using neighborhood delivery
     if (value !== "neighborhood") {
       setSelectedNeighborhood(null);
       form.setValue("neighborhood", "");
     }
   };
   
-  const handleNeighborhoodChange = (neighborhoodId: string) => {
-    form.setValue("neighborhood", neighborhoodId);
+  // Handle neighborhood selection
+  const handleNeighborhoodChange = (id: string) => {
     if (!deliverySettings?.neighborhoodRates?.neighborhoods) return;
-    const neighborhood = deliverySettings.neighborhoodRates.neighborhoods.find(n => n.id === neighborhoodId);
+    
+    const neighborhood = deliverySettings.neighborhoodRates.neighborhoods.find(n => n.id === id);
     if (neighborhood) {
       setSelectedNeighborhood(neighborhood);
       setDeliveryCost(neighborhood.fee);
-    } else {
-      setSelectedNeighborhood(null);
-      setDeliveryCost(0);
     }
   };
   
+  // Go to next step
   const nextStep = () => {
     if (currentStep === CheckoutStep.CART_REVIEW) {
-      if (cart.items.length === 0) { toast.error("Seu carrinho está vazio."); return; }
       setCurrentStep(CheckoutStep.DELIVERY_OPTIONS);
     } else if (currentStep === CheckoutStep.DELIVERY_OPTIONS) {
-      const deliveryOption = form.getValues("deliveryOption");
-      if (!deliveryOption) { toast.error("Por favor, selecione uma opção de entrega."); return; }
-      if (deliveryOption === "neighborhood" && !form.getValues("neighborhood")) {
-        toast.error("Por favor, selecione um bairro para entrega.");
-        return;
-      }
       setCurrentStep(CheckoutStep.CUSTOMER_INFO);
     }
   };
   
+  // Go to previous step
   const prevStep = () => {
-    if (currentStep === CheckoutStep.CUSTOMER_INFO) setCurrentStep(CheckoutStep.DELIVERY_OPTIONS);
-    else if (currentStep === CheckoutStep.DELIVERY_OPTIONS) setCurrentStep(CheckoutStep.CART_REVIEW);
-  };
-  
-  const generateOrderNumber = () => Date.now().toString().slice(-6) + Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-  
-  const onSubmit = async (data: CustomerFormValues) => {
-    if (isProcessingOrder) return;
-    setIsProcessingOrder(true);
-    try {
-      if (cart.items.length === 0) { toast.error('Seu carrinho está vazio.'); setIsProcessingOrder(false); return; }
-      const orderNumber = generateOrderNumber();
-      let address = '';
-      if (data.deliveryOption !== "pickup") {
-        if (!data.street || !data.number || !data.district) { toast.error('Preencha todos os campos de endereço obrigatórios (*).'); setIsProcessingOrder(false); return; }
-        address = `${data.street}, ${data.number}${data.complement ? `, ${data.complement}` : ''} - ${data.district}`;
-      }
-      let deliveryMethod = '';
-      let deliveryOptionType: Order['deliveryOption']['type'] = 'pickup';
-      let neighborhoodDetails: Order['deliveryOption']['neighborhoodIdName'] = undefined;
-
-      if (data.deliveryOption === "pickup") { deliveryMethod = "Retirada no Local"; deliveryOptionType = "pickup"; }
-      else if (data.deliveryOption === "fixedRate" && deliverySettings?.fixedRate) { deliveryMethod = `Entrega Taxa Fixa: ${formatCurrency(deliverySettings.fixedRate.fee)}`; deliveryOptionType = "fixedRate"; }
-      else if (data.deliveryOption === "neighborhood" && selectedNeighborhood) { deliveryMethod = `Entrega ${selectedNeighborhood.name}: ${formatCurrency(selectedNeighborhood.fee)}`; deliveryOptionType = "neighborhood"; neighborhoodDetails = { id: selectedNeighborhood.id, name: selectedNeighborhood.name };}
-      
-      const orderItemsText = cart.items.map(item => `\n- ${item.quantity}x ${item.productName}${item.selectedVariations.length > 0 ? ` (${item.selectedVariations.map(v => `${v.groupName}: ${v.optionName}`).join(', ')})` : ''} - ${formatCurrency(item.totalPrice / item.quantity)} cada = ${formatCurrency(item.totalPrice)}`).join('');
-      const total = calculateTotal();
-      const orderForDb: Order = { id: crypto.randomUUID(), orderNumber, customer: { name: data.name, phone: data.phone, address: data.deliveryOption !== "pickup" ? { street: data.street || '', number: data.number || '', complement: data.complement, district: data.district || ''} : undefined }, items: cart.items, subtotal: cart.subtotal, deliveryOption: { type: deliveryOptionType, name: deliveryMethod, fee: deliveryCost, neighborhoodId: neighborhoodDetails?.id, neighborhoodName: neighborhoodDetails?.name }, total, notes: data.notes, status: 'new', createdAt: new Date().toISOString(), whatsappSent: false };
-      let message = `*Pedido Loja ${storeSettings?.storeName || 'Gordopods'}!*\n*Pedido:* #${orderNumber}\n\n*Cliente:* ${data.name}\n*Telefone:* ${data.phone}${address ? `\n*Endereço:* ${address}` : ''}\n\n*Itens:*${orderItemsText}\n\n*Subtotal:* ${formatCurrency(cart.subtotal)}\n*Entrega:* ${formatCurrency(deliveryCost)}\n*Total:* ${formatCurrency(total)}${data.notes ? `\n\n*Obs:* ${data.notes}` : ''}`;
-      const whatsappNumber = storeConfig?.whatsappNumber?.replace(/\D/g, '') || '';
-      if (!whatsappNumber || whatsappNumber.length < 10) { toast.error('WhatsApp da loja não configurado.'); setIsProcessingOrder(false); return; }
-      
-      await saveOrderToDatabase({ ...orderForDb, whatsappSent: true }); // Marcar como enviado
-      const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`;
-      
-      // Ações de sucesso
-      toast.success('Redirecionando para o WhatsApp...');
-      setTimeout(() => {
-        window.location.href = whatsappUrl;
-        // Após redirecionar (ou se o usuário voltar), fechar e resetar o carrinho.
-        // É melhor resetar ANTES do redirecionamento para garantir.
-        closeCart(); 
-        setCurrentStep(CheckoutStep.CART_REVIEW); 
-        form.reset({ deliveryOption: defaultDeliveryOption, name: "", phone: "", notes: "", street: "", number: "", complement: "", district: "", neighborhood: "" });
-        clearCart(); 
-      }, 1000);
-      
-    } catch (error) { console.error('Error processing order:', error); toast.error('Erro ao processar pedido.');
-    } finally { setIsProcessingOrder(false); }
-  };
-  
-  const handleSheetOpenChange = (open: boolean) => {
-    if (!open && isCartOpen) { // Apenas se estiver fechando
+    if (currentStep === CheckoutStep.CUSTOMER_INFO) {
+      setCurrentStep(CheckoutStep.DELIVERY_OPTIONS);
+    } else if (currentStep === CheckoutStep.DELIVERY_OPTIONS) {
       setCurrentStep(CheckoutStep.CART_REVIEW);
     }
-    if (isCartOpen !== open) {
-        toggleCart();
+  };
+  
+  // Generate a unique order number
+  const generateOrderNumber = () => {
+    const timestamp = Date.now().toString().slice(-6);
+    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+    return `${timestamp}${random}`;
+  };
+  
+  // Handle form submission and WhatsApp checkout
+  const onSubmit = async (data: CustomerFormValues) => {
+    // Prevent multiple submissions
+    if (isProcessingOrder) return;
+    setIsProcessingOrder(true);
+    
+    try {
+      // Validate that cart has items
+      if (cart.items.length === 0) {
+        toast.error('Seu carrinho está vazio. Adicione itens antes de finalizar.');
+        setIsProcessingOrder(false);
+        return;
+      }
+      
+      // Generate unique order number
+      const orderNumber = generateOrderNumber();
+      
+      // Format address based on delivery option
+      let address = '';
+      if (data.deliveryOption !== "pickup") {
+        if (!data.street || !data.number || !data.district) {
+          toast.error('Por favor, preencha todos os campos de endereço.');
+          setIsProcessingOrder(false);
+          return;
+        }
+        
+        address = `${data.street}, ${data.number}`;
+        if (data.complement) {
+          address += `, ${data.complement}`;
+        }
+        address += ` - ${data.district}`;
+      }
+      
+      // Format delivery method info
+      let deliveryMethod = '';
+      let deliveryOptionType: 'pickup' | 'fixedRate' | 'neighborhood' = 'pickup';
+      let neighborhoodIdName = { id: '', name: '' };
+      
+      if (data.deliveryOption === "pickup") {
+        deliveryMethod = "Retirada no Local";
+        deliveryOptionType = "pickup";
+      } else if (data.deliveryOption === "fixedRate" && deliverySettings?.fixedRate) {
+        deliveryMethod = `Entrega com Taxa Fixa: ${formatCurrency(deliverySettings.fixedRate.fee)}`;
+        deliveryOptionType = "fixedRate";
+      } else if (data.deliveryOption === "neighborhood") {
+        deliveryOptionType = "neighborhood";
+        if (selectedNeighborhood) {
+          deliveryMethod = `Entrega para ${selectedNeighborhood.name}: ${formatCurrency(selectedNeighborhood.fee)}`;
+          neighborhoodIdName = { 
+            id: selectedNeighborhood.id, 
+            name: selectedNeighborhood.name 
+          };
+        }
+      }
+      
+      // Format order items
+      let orderItems = '';
+      cart.items.forEach(item => {
+        orderItems += `\n- ${item.quantity}x ${item.productName}`;
+        
+        // Add variations
+        if (item.selectedVariations.length > 0) {
+          orderItems += ' (';
+          orderItems += item.selectedVariations.map(v => `${v.groupName}: ${v.optionName}`).join(', ');
+          orderItems += ')';
+        }
+        
+        // Add price
+        orderItems += ` - ${formatCurrency(item.totalPrice / item.quantity)} cada = ${formatCurrency(item.totalPrice)}`;
+      });
+      
+      // Calculate total
+      const total = calculateTotal();
+      
+      // Create order object for database
+      const order: Order = {
+        id: crypto.randomUUID(),
+        orderNumber,
+        customer: {
+          name: data.name,
+          phone: data.phone,
+          address: data.deliveryOption !== "pickup" ? {
+            street: data.street || '',
+            number: data.number || '',
+            complement: data.complement,
+            district: data.district || '',
+          } : undefined,
+        },
+        items: cart.items,
+        subtotal: cart.subtotal,
+        deliveryOption: {
+          type: deliveryOptionType,
+          name: deliveryMethod,
+          fee: deliveryCost,
+          neighborhoodId: neighborhoodIdName.id,
+          neighborhoodName: neighborhoodIdName.name,
+        },
+        total,
+        notes: data.notes,
+        status: 'new',
+        createdAt: new Date().toISOString(),
+        whatsappSent: false,
+      };
+      
+      // Format WhatsApp message
+      let message = `*Pedido Loja ${storeSettings?.storeName || 'Gordopods'}!*
+*Número do Pedido:* #${orderNumber}
+
+*Cliente:* ${data.name}
+*Telefone:* ${data.phone}`;
+
+      // Add address if not pickup
+      if (data.deliveryOption !== "pickup") {
+        message += `\n*Endereço:* ${address}`;
+      }
+
+      message += `\n\n*Itens do Pedido:*${orderItems}
+
+*Subtotal:* ${formatCurrency(cart.subtotal)}
+*${data.deliveryOption === "pickup" ? "Retirada no Local" : "Taxa de Entrega"}:* ${data.deliveryOption === "pickup" ? "R$ 0,00" : formatCurrency(deliveryCost)}
+*Total Geral:* ${formatCurrency(total)}`;
+
+      // Add notes if any
+      if (data.notes) {
+        message += `\n\n*Observações:* ${data.notes}`;
+      }
+      
+      // Get WhatsApp number from store config
+      // Remove all non-digits
+      const whatsappNumber = storeConfig?.whatsappNumber?.replace(/\D/g, '') || '';
+      
+      // Ensure the WhatsApp number is valid
+      if (!whatsappNumber || whatsappNumber.length < 10) {
+        toast.error('Número de WhatsApp da loja não configurado corretamente.');
+        setIsProcessingOrder(false);
+        return;
+      }
+      
+      // Save order to database before redirecting (in parallel)
+      await saveOrderToDatabase({
+        ...order,
+        whatsappSent: true,
+      });
+      
+      // Create WhatsApp URL
+      const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`;
+      
+      // Close cart
+      closeCart();
+      
+      // Reset checkout step for next time
+      setCurrentStep(CheckoutStep.CART_REVIEW);
+      
+      // Reset form
+      form.reset();
+      
+      // Show success message
+      toast.success('Redirecionando para o WhatsApp');
+      
+      // Redirect to WhatsApp with small delay to allow toast to be seen
+      setTimeout(() => {
+        window.location.href = whatsappUrl;
+      }, 1000);
+      
+    } catch (error) {
+      console.error('Error processing order:', error);
+      toast.error('Ocorreu um erro ao processar seu pedido. Por favor, tente novamente.');
+    } finally {
+      setIsProcessingOrder(false);
     }
+  };
+  
+  // Reset checkout when cart is closed
+  const handleClose = () => {
+    setCurrentStep(CheckoutStep.CART_REVIEW);
+    closeCart();
+  };
+  
+  // Render cart items or empty cart message
+  const renderCartItems = () => {
+    if (cart.items.length === 0) {
+      return (
+        <div className="h-[60vh] flex flex-col items-center justify-center text-center py-12">
+          <CartIcon size={48} className="text-gray-300 mb-4" />
+          <h3 className="text-lg font-medium">Seu carrinho está vazio</h3>
+          <p className="text-sm text-gray-500 mt-1">
+            Adicione produtos para continuar com o pedido
+          </p>
+          <Button className="mt-6" onClick={handleClose}>
+            Voltar às Compras
+          </Button>
+        </div>
+      );
+    }
+    
+    return (
+      <>
+        <ScrollArea className="flex-1 my-6 h-[60vh]">
+          <div className="space-y-4 pr-4">
+            {cart.items.map((item) => (
+              <div
+                key={item.id}
+                className="flex gap-3 py-3 border-b last:border-b-0"
+              >
+                {/* Product image */}
+                <div className="w-20 h-20 bg-gray-100 rounded overflow-hidden flex-shrink-0">
+                  {item.imageUrl ? (
+                    <img
+                      src={item.imageUrl}
+                      alt={item.productName}
+                      className="w-full h-full object-cover"
+                      onError={(e: React.SyntheticEvent<HTMLImageElement>) => {
+                        e.currentTarget.src = "https://via.placeholder.com/100?text=Item";
+                      }}
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-gray-400">
+                      Sem imagem
+                    </div>
+                  )}
+                </div>
+                
+                {/* Product details */}
+                <div className="flex flex-col flex-1">
+                  <h4 className="font-medium">{item.productName}</h4>
+                  
+                  {/* Variations */}
+                  {item.selectedVariations.length > 0 && (
+                    <div className="mt-1 space-y-1">
+                      {item.selectedVariations.map((variation) => (
+                        <div
+                          key={`${variation.groupId}-${variation.optionId}`}
+                          className="flex text-sm text-gray-600"
+                        >
+                          <span>{variation.groupName}: </span>
+                          <span className="ml-1 font-medium">{variation.optionName}</span>
+                          {variation.priceModifier !== 0 && (
+                            <span className="text-xs ml-1">
+                              ({variation.priceModifier > 0 ? "+" : ""}
+                              {formatCurrency(variation.priceModifier)})
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  {/* Price */}
+                  <div className="mt-auto pt-2 flex items-center justify-between">
+                    <div className="font-medium">
+                      {formatCurrency(item.totalPrice / item.quantity)}
+                    </div>
+                    
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                      >
+                        <Minus className="h-3 w-3" />
+                      </Button>
+                      
+                      <span className="w-8 text-center">{item.quantity}</span>
+                      
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                      >
+                        <Plus className="h-3 w-3" />
+                      </Button>
+                      
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-red-500 hover:text-red-600 hover:bg-red-50"
+                        onClick={() => removeItem(item.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </ScrollArea>
+        
+        <div className="border-t pt-4">
+          <div className="flex justify-between mb-2">
+            <span>Subtotal:</span>
+            <span className="font-semibold">
+              {formatCurrency(cart.subtotal)}
+            </span>
+          </div>
+          
+          <Textarea 
+            placeholder="Observações sobre o pedido..." 
+            className="mt-3 mb-3"
+            value={form.watch("notes")}
+            onChange={(e) => form.setValue("notes", e.target.value)}
+          />
+          
+          <SheetFooter className="flex flex-col gap-3 sm:flex-row mt-6">
+            <SheetClose asChild>
+              <Button variant="outline" className="w-full sm:w-auto">
+                Continuar Comprando
+              </Button>
+            </SheetClose>
+            
+            <Button className="w-full sm:w-auto" onClick={nextStep}>
+              Opções de Entrega <ArrowRight className="ml-2 h-4 w-4" />
+            </Button>
+          </SheetFooter>
+        </div>
+      </>
+    );
+  };
+  
+  // Render delivery options step
+  const renderDeliveryOptions = () => {
+    // Check if deliverySettings is defined and if any delivery option is available
+    const hasDeliveryOptions = 
+      deliverySettings?.pickup?.enabled || 
+      deliverySettings?.fixedRate?.enabled || 
+      deliverySettings?.neighborhoodRates?.enabled;
+    
+    if (!hasDeliveryOptions) {
+      return (
+        <div className="h-[60vh] flex flex-col items-center justify-center text-center py-12">
+          <h3 className="text-lg font-medium">Sem opções de entrega disponíveis</h3>
+          <p className="text-sm text-gray-500 mt-1">
+            Entre em contato com a loja para mais informações
+          </p>
+          <div className="flex gap-3 mt-6">
+            <Button variant="outline" onClick={prevStep}>Voltar ao Carrinho</Button>
+          </div>
+        </div>
+      );
+    }
+    
+    return (
+      <div className="py-6">
+        <h3 className="text-lg font-medium mb-4">Escolha a forma de entrega</h3>
+        
+        <RadioGroup 
+          value={form.watch("deliveryOption")} 
+          onValueChange={handleDeliveryOptionChange}
+          className="flex flex-col gap-4"
+        >
+          {/* Pickup option */}
+          {deliverySettings?.pickup?.enabled && (
+            <div className="flex items-start space-x-3 border p-4 rounded-md">
+              <RadioGroupItem value="pickup" id="pickup" className="mt-1" />
+              <div>
+                <Label htmlFor="pickup" className="font-medium">Retirada no Local</Label>
+                <p className="text-sm text-gray-500 mt-1">{deliverySettings.pickup.instructions}</p>
+                <p className="text-sm font-medium mt-2">R$ 0,00</p>
+              </div>
+            </div>
+          )}
+          
+          {/* Fixed rate delivery */}
+          {deliverySettings?.fixedRate?.enabled && (
+            <div className="flex items-start space-x-3 border p-4 rounded-md">
+              <RadioGroupItem value="fixedRate" id="fixedRate" className="mt-1" />
+              <div>
+                <Label htmlFor="fixedRate" className="font-medium">Entrega com Taxa Fixa</Label>
+                <p className="text-sm text-gray-500 mt-1">{deliverySettings.fixedRate.description}</p>
+                <p className="text-sm font-medium mt-2">{formatCurrency(deliverySettings.fixedRate.fee)}</p>
+              </div>
+            </div>
+          )}
+          
+          {/* Neighborhood delivery */}
+          {deliverySettings?.neighborhoodRates?.enabled && deliverySettings.neighborhoodRates.neighborhoods.length > 0 && (
+            <div className="flex items-start space-x-3 border p-4 rounded-md">
+              <RadioGroupItem value="neighborhood" id="neighborhood" className="mt-1" />
+              <div className="w-full">
+                <Label htmlFor="neighborhood" className="font-medium">Entrega por Bairro</Label>
+                
+                {form.watch("deliveryOption") === "neighborhood" && (
+                  <div className="mt-3">
+                    <Label htmlFor="neighborhoodSelect" className="text-sm">Selecione o bairro</Label>
+                    <select
+                      id="neighborhoodSelect"
+                      className="w-full mt-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={form.watch("neighborhood")}
+                      onChange={(e) => {
+                        form.setValue("neighborhood", e.target.value);
+                        handleNeighborhoodChange(e.target.value);
+                      }}
+                    >
+                      <option value="">Selecione um bairro</option>
+                      {deliverySettings.neighborhoodRates.neighborhoods.map((neighborhood) => (
+                        <option key={neighborhood.id} value={neighborhood.id}>
+                          {neighborhood.name} - {formatCurrency(neighborhood.fee)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </RadioGroup>
+        
+        {/* Summary with delivery */}
+        <div className="border-t mt-8 pt-4">
+          <div className="flex justify-between mb-2">
+            <span>Subtotal:</span>
+            <span>
+              {formatCurrency(cart.subtotal)}
+            </span>
+          </div>
+          
+          <div className="flex justify-between mb-2">
+            <span>Taxa de Entrega:</span>
+            <span>
+              {formatCurrency(deliveryCost)}
+            </span>
+          </div>
+          
+          <div className="flex justify-between font-bold">
+            <span>Total:</span>
+            <span>
+              {formatCurrency(calculateTotal())}
+            </span>
+          </div>
+          
+          <div className="flex justify-between gap-3 mt-8">
+            <Button variant="outline" onClick={prevStep} className="w-full">
+              Voltar
+            </Button>
+            <Button 
+              onClick={nextStep} 
+              className="w-full"
+              disabled={form.watch("deliveryOption") === "neighborhood" && !selectedNeighborhood}
+            >
+              Continuar <ArrowRight className="ml-2 h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+  
+  // Render customer info form
+  const renderCustomerInfoForm = () => {
+    return (
+      <div className="py-4">
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <FormField
+              control={form.control}
+              name="name"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Nome Completo*</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Digite seu nome completo" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            
+            <FormField
+              control={form.control}
+              name="phone"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Telefone/WhatsApp*</FormLabel>
+                  <FormControl>
+                    <Input 
+                      placeholder="(XX) XXXXX-XXXX" 
+                      value={field.value}
+                      onChange={(e) => handlePhoneInput(e)}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            
+            {/* Address fields (only show if delivery is selected) */}
+            {form.watch("deliveryOption") !== "pickup" && (
+              <div className="space-y-4 border-t pt-4">
+                <h3 className="font-medium">Endereço de Entrega</h3>
+                
+                <FormField
+                  control={form.control}
+                  name="street"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Rua/Avenida*</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Ex: Rua das Flores" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="number"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Número*</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Ex: 123" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  
+                  <FormField
+                    control={form.control}
+                    name="complement"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Complemento</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Ex: Apto 101" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+                
+                <FormField
+                  control={form.control}
+                  name="district"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Bairro*</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Ex: Centro" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            )}
+            
+            {/* Order summary */}
+            <div className="border-t mt-4 pt-4">
+              <div className="flex justify-between mb-2">
+                <span>Subtotal:</span>
+                <span>
+                  {formatCurrency(cart.subtotal)}
+                </span>
+              </div>
+              
+              <div className="flex justify-between mb-2">
+                <span>
+                  {form.watch("deliveryOption") === "pickup" 
+                    ? "Retirada no Local:" 
+                    : "Taxa de Entrega:"}
+                </span>
+                <span>
+                  {formatCurrency(deliveryCost)}
+                </span>
+              </div>
+              
+              <div className="flex justify-between font-bold">
+                <span>Total:</span>
+                <span>
+                  {formatCurrency(calculateTotal())}
+                </span>
+              </div>
+              
+              <div className="flex justify-between gap-3 mt-8">
+                <Button variant="outline" type="button" onClick={prevStep} className="w-full">
+                  Voltar
+                </Button>
+                <Button 
+                  type="submit" 
+                  className="w-full"
+                  disabled={isProcessingOrder}
+                >
+                  {isProcessingOrder ? (
+                    <>
+                      <span className="mr-2">Processando...</span>
+                      <div className="h-4 w-4 border-2 border-current border-r-transparent rounded-full animate-spin"></div>
+                    </>
+                  ) : (
+                    <>
+                      Finalizar no WhatsApp <Send className="ml-2 h-4 w-4" />
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </form>
+        </Form>
+      </div>
+    );
   };
 
   return (
-    <Sheet open={isCartOpen} onOpenChange={handleSheetOpenChange}>
-      <SheetContent className="w-full sm:max-w-md flex flex-col p-0 dark:bg-slate-950"> {/* MODIFICADO: p-0 e flex flex-col */}
-        <SheetHeader className="p-4 sm:p-6 pb-3 sm:pb-4 border-b dark:border-slate-800 shrink-0 bg-background dark:bg-slate-900 sticky top-0 z-10"> {/* Adicionado sticky, bg e z-index */}
-          <SheetTitle className="flex items-center text-base sm:text-lg">
+    <Sheet open={isCartOpen} onOpenChange={toggleCart}>
+      <SheetContent className="w-full sm:max-w-md">
+        <SheetHeader>
+          <SheetTitle className="flex items-center">
             <CartIcon className="mr-2" size={20} />
             {currentStep === CheckoutStep.CART_REVIEW && "Carrinho de Compras"}
             {currentStep === CheckoutStep.DELIVERY_OPTIONS && "Opções de Entrega"}
-            {currentStep === CheckoutStep.CUSTOMER_INFO && "Seus Dados e Pagamento"}
+            {currentStep === CheckoutStep.CUSTOMER_INFO && "Seus Dados"}
           </SheetTitle>
-          {/* O X de fechar é renderizado aqui pelo SheetContent */}
         </SheetHeader>
         
-        {/* Conteúdo Principal Rolável */}
-        <ScrollArea className="flex-grow"> {/* ScrollArea em volta do conteúdo dinâmico */}
-          <div className="p-4 sm:p-6"> {/* Padding interno para o conteúdo */}
-            {cart.items.length === 0 && currentStep === CheckoutStep.CART_REVIEW ? (
-              <div className="flex flex-col items-center justify-center text-center py-12 min-h-[calc(100vh-250px)] sm:min-h-[auto]">
-                  <CartIcon size={48} className="text-gray-300 dark:text-gray-600 mb-4" />
-                  <h3 className="text-lg font-medium">Seu carrinho está vazio</h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Adicione produtos para continuar</p>
-                  <Button className="mt-6" onClick={() => { closeCart(); setCurrentStep(CheckoutStep.CART_REVIEW); }}>Continuar Comprando</Button>
-              </div>
-            ) : (
-              <>
-                {/* CONTEÚDO DA ETAPA 1: CART_REVIEW */}
-                {currentStep === CheckoutStep.CART_REVIEW && (
-                  <div className="space-y-3">
-                    {cart.items.map((item) => (
-                      <div key={item.id} className="flex gap-3 py-3 border-b dark:border-slate-700 last:border-b-0">
-                        <div className="w-16 h-16 sm:w-20 sm:h-20 bg-gray-100 dark:bg-slate-800 rounded overflow-hidden flex-shrink-0">
-                          {item.imageUrl ? <img src={item.imageUrl} alt={item.productName} className="w-full h-full object-cover" onError={(e: React.SyntheticEvent<HTMLImageElement>) => {e.currentTarget.src = "https://via.placeholder.com/100?text=Item";}}/> : <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">Sem img</div>}
-                        </div>
-                        <div className="flex flex-col flex-1 min-w-0">
-                          <h4 className="font-medium text-sm sm:text-base truncate">{item.productName}</h4>
-                          {item.selectedVariations.length > 0 && ( <div className="mt-1 space-y-0.5"> {item.selectedVariations.map((variation) => ( <div key={`${variation.groupId}-${variation.optionId}`} className="flex text-xs sm:text-sm text-gray-600 dark:text-gray-400"> <span className="shrink-0">{variation.groupName}: </span> <span className="ml-1 font-medium truncate">{variation.optionName}</span> {variation.priceModifier !== 0 && ( <span className="text-xs ml-1 whitespace-nowrap">({variation.priceModifier > 0 ? "+" : ""}{formatCurrency(variation.priceModifier)})</span> )} </div> ))} </div> )}
-                          <div className="mt-auto pt-1 sm:pt-2 flex items-center justify-between">
-                            <div className="font-medium text-sm sm:text-base">{formatCurrency(item.totalPrice / item.quantity)}</div>
-                            <div className="flex items-center gap-1">
-                              <Button variant="outline" size="icon" className="h-6 w-6 sm:h-7 sm:w-7 shrink-0" onClick={() => updateQuantity(item.id, item.quantity - 1)} disabled={item.quantity <=1}><Minus className="h-3 w-3" /></Button>
-                              <span className="w-6 sm:w-8 text-center text-sm sm:text-base">{item.quantity}</span>
-                              <Button variant="outline" size="icon" className="h-6 w-6 sm:h-7 sm:w-7 shrink-0" onClick={() => updateQuantity(item.id, item.quantity + 1)}><Plus className="h-3 w-3" /></Button>
-                              <Button variant="ghost" size="icon" className="h-6 w-6 sm:h-7 sm:w-7 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/50 shrink-0" onClick={() => removeItem(item.id)}><Trash2 className="h-3.5 w-3.5 sm:h-4 sm:w-4" /></Button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* CONTEÚDO DA ETAPA 2: DELIVERY_OPTIONS */}
-                {currentStep === CheckoutStep.DELIVERY_OPTIONS && (
-                  <div className="py-2 space-y-3">
-                    <h3 className="text-lg font-medium mb-4">Escolha a forma de entrega</h3>
-                    <RadioGroup value={form.watch("deliveryOption")} onValueChange={handleDeliveryOptionChange} className="flex flex-col gap-3">
-                      {deliverySettings?.pickup?.enabled && ( <div className="flex items-start space-x-3 border dark:border-slate-700 p-3 rounded-md hover:border-primary dark:hover:border-primary transition-colors cursor-pointer" onClick={() => handleDeliveryOptionChange('pickup')}> <RadioGroupItem value="pickup" id="pickup" className="mt-1" /> <div className="w-full"> <Label htmlFor="pickup" className="font-medium cursor-pointer">Retirada no Local</Label> <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-1">{deliverySettings.pickup.instructions}</p> <p className="text-xs sm:text-sm font-medium mt-2">R$ 0,00</p> </div> </div> )}
-                      {deliverySettings?.fixedRate?.enabled && ( <div className="flex items-start space-x-3 border dark:border-slate-700 p-3 rounded-md hover:border-primary dark:hover:border-primary transition-colors cursor-pointer" onClick={() => handleDeliveryOptionChange('fixedRate')}> <RadioGroupItem value="fixedRate" id="fixedRate" className="mt-1" /> <div className="w-full"> <Label htmlFor="fixedRate" className="font-medium cursor-pointer">Entrega com Taxa Fixa</Label> <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-1">{deliverySettings.fixedRate.description}</p> <p className="text-xs sm:text-sm font-medium mt-2">{formatCurrency(deliverySettings.fixedRate.fee)}</p> </div> </div> )}
-                      {deliverySettings?.neighborhoodRates?.enabled && deliverySettings.neighborhoodRates.neighborhoods.length > 0 && ( <div className="flex items-start space-x-3 border dark:border-slate-700 p-3 rounded-md hover:border-primary dark:hover:border-primary transition-colors cursor-pointer" onClick={() => handleDeliveryOptionChange('neighborhood')}> <RadioGroupItem value="neighborhood" id="neighborhoodRadio" className="mt-1" /> <div className="w-full"> <Label htmlFor="neighborhoodRadio" className="font-medium cursor-pointer">Entrega por Bairro</Label> {form.watch("deliveryOption") === "neighborhood" && ( <div className="mt-2"> <Label htmlFor="neighborhoodSelect" className="text-xs">Selecione o bairro</Label> <select id="neighborhoodSelect" className="w-full mt-1 rounded-md border border-input bg-background px-3 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary dark:border-slate-600 dark:bg-slate-800" value={form.watch("neighborhood")} onChange={(e) => handleNeighborhoodChange(e.target.value)} onClick={(e) => e.stopPropagation()} > <option value="">Selecione...</option> {deliverySettings.neighborhoodRates.neighborhoods.map((n) => ( <option key={n.id} value={n.id}>{n.name} - {formatCurrency(n.fee)}</option> ))} </select> <FormMessage>{form.formState.errors.neighborhood?.message}</FormMessage></div> )} </div> </div> )}
-                    </RadioGroup>
-                    <FormMessage>{form.formState.errors.deliveryOption?.message}</FormMessage>
-                  </div>
-                )}
-
-                {/* CONTEÚDO DA ETAPA 3: CUSTOMER_INFO */}
-                {currentStep === CheckoutStep.CUSTOMER_INFO && (
-                  <div className="py-2">
-                    <Form {...form}>
-                      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-3"> {/* Não precisa do onSubmit aqui, será chamado pelo botão no footer */}
-                        <FormField control={form.control} name="name" render={({ field }) => ( <FormItem> <FormLabel className="text-xs sm:text-sm">Nome Completo*</FormLabel> <FormControl><Input placeholder="Digite seu nome" {...field} className="text-sm sm:text-base"/></FormControl> <FormMessage /> </FormItem> )}/>
-                        <FormField control={form.control} name="phone" render={({ field: currentPhoneField }) => ( <FormItem> <FormLabel className="text-xs sm:text-sm">Telefone/WhatsApp*</FormLabel> <FormControl><Input placeholder="(XX) XXXXX-XXXX" {...currentPhoneField} value={form.watch('phone')} onChange={(e) => handlePhoneInput(e)} className="text-sm sm:text-base"/></FormControl> <FormMessage /> </FormItem> )}/>
-                        {form.watch("deliveryOption") !== "pickup" && ( <div className="space-y-3 border-t dark:border-slate-700 pt-3 mt-3"> <h3 className="font-medium text-sm sm:text-base">Endereço de Entrega</h3> <FormField control={form.control} name="street" render={({ field }) => ( <FormItem> <FormLabel className="text-xs sm:text-sm">Rua/Avenida*</FormLabel> <FormControl><Input placeholder="Ex: Rua das Flores" {...field} className="text-sm sm:text-base"/></FormControl> <FormMessage /> </FormItem> )}/> <div className="grid grid-cols-2 gap-3"> <FormField control={form.control} name="number" render={({ field }) => ( <FormItem> <FormLabel className="text-xs sm:text-sm">Número*</FormLabel> <FormControl><Input placeholder="Ex: 123" {...field} className="text-sm sm:text-base"/></FormControl> <FormMessage /> </FormItem> )}/> <FormField control={form.control} name="complement" render={({ field }) => ( <FormItem> <FormLabel className="text-xs sm:text-sm">Complemento</FormLabel> <FormControl><Input placeholder="Ex: Apto 101" {...field} className="text-sm sm:text-base"/></FormControl> <FormMessage /> </FormItem> )}/> </div> <FormField control={form.control} name="district" render={({ field }) => ( <FormItem> <FormLabel className="text-xs sm:text-sm">Bairro*</FormLabel> <FormControl><Input placeholder="Ex: Centro" {...field} className="text-sm sm:text-base"/></FormControl> <FormMessage /> </FormItem> )}/> </div> )}
-                         {/* O botão de submit foi movido para o footer global */}
-                      </form>
-                    </Form>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </ScrollArea>
-
-        {/* Footer Fixo com Ações e Resumo */}
-        {cart.items.length > 0 && (
-          <div className="p-4 sm:p-6 border-t dark:border-slate-700 shrink-0 bg-background dark:bg-slate-900 space-y-3">
-            {/* Resumo Financeiro */}
-            <div className="text-xs sm:text-sm space-y-1">
-                <div className="flex justify-between">
-                    <span>Subtotal:</span>
-                    <span className="font-medium">{formatCurrency(cart.subtotal)}</span>
-                </div>
-                {(currentStep === CheckoutStep.DELIVERY_OPTIONS || currentStep === CheckoutStep.CUSTOMER_INFO) && (
-                    <div className="flex justify-between">
-                        <span>Entrega:</span>
-                        <span className="font-medium">{formatCurrency(deliveryCost)}</span>
-                    </div>
-                )}
-                {(currentStep === CheckoutStep.DELIVERY_OPTIONS || currentStep === CheckoutStep.CUSTOMER_INFO) && (
-                    <div className="flex justify-between font-semibold text-sm sm:text-base mt-1">
-                        <span>Total:</span>
-                        <span>{formatCurrency(calculateTotal())}</span>
-                    </div>
-                )}
-            </div>
-
-            {currentStep === CheckoutStep.CART_REVIEW && (
-              <Textarea 
-                placeholder="Observações sobre o pedido..." 
-                className="text-sm"
-                rows={2}
-                {...form.register("notes")} // Registrar com react-hook-form
-              />
-            )}
-
-            {/* Botões Condicionais por Etapa */}
-            <div className="flex flex-col sm:flex-row gap-2">
-              {currentStep === CheckoutStep.CART_REVIEW && (
-                <>
-                  <Button variant="outline" className="w-full order-2 sm:order-1" onClick={() => { closeCart(); setCurrentStep(CheckoutStep.CART_REVIEW); }}>
-                    Continuar Comprando
-                  </Button>
-                  <Button className="w-full order-1 sm:order-2" onClick={nextStep} style={{backgroundColor: 'var(--primary-color)', color: 'white'}}>
-                    Opções de Entrega <ArrowRight className="ml-2 h-4 w-4" />
-                  </Button>
-                </>
-              )}
-              {currentStep === CheckoutStep.DELIVERY_OPTIONS && (
-                <>
-                  <Button variant="outline" onClick={prevStep} className="w-full sm:flex-1">
-                    <ChevronLeft className="mr-1 h-4 w-4" /> Voltar Itens
-                  </Button>
-                  <Button 
-                    onClick={nextStep} 
-                    className="w-full sm:flex-1"
-                    style={{backgroundColor: 'var(--primary-color)', color: 'white'}}
-                    disabled={form.watch("deliveryOption") === "neighborhood" && !form.watch("neighborhood")}
-                  >
-                    Dados Pessoais <ArrowRight className="ml-2 h-4 w-4" />
-                  </Button>
-                </>
-              )}
-              {currentStep === CheckoutStep.CUSTOMER_INFO && (
-                <>
-                  <Button variant="outline" type="button" onClick={prevStep} className="w-full sm:flex-1">
-                     <ChevronLeft className="mr-1 h-4 w-4" /> Voltar Entrega
-                  </Button>
-                  <Button 
-                    type="button" 
-                    onClick={form.handleSubmit(onSubmit)} // Aciona a submissão do formulário
-                    className="w-full sm:flex-1"
-                    style={{backgroundColor: 'var(--primary-color)', color: 'white'}}
-                    disabled={isProcessingOrder || (form.formState.isSubmitted && !form.formState.isValid)}
-                  >
-                    {isProcessingOrder ? 
-                        <span className="animate-pulse">Processando...</span> : 
-                        <>Finalizar Pedido <Send className="ml-2 h-4 w-4" /></>
-                    }
-                  </Button>
-                </>
-              )}
-            </div>
-          </div>
+        {/* Cart is empty or show current step */}
+        {cart.items.length === 0 ? (
+          renderCartItems()
+        ) : (
+          <>
+            {currentStep === CheckoutStep.CART_REVIEW && renderCartItems()}
+            {currentStep === CheckoutStep.DELIVERY_OPTIONS && renderDeliveryOptions()}
+            {currentStep === CheckoutStep.CUSTOMER_INFO && renderCustomerInfoForm()}
+          </>
         )}
       </SheetContent>
     </Sheet>
