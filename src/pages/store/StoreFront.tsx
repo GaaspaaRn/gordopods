@@ -48,8 +48,8 @@ export default function StoreFront() {
     ); // <--- PONTO E VÍRGULA AQUI
   }
 
-  const primaryColor = storeSettings.primaryColor || '#9b87f5';
-  const secondaryColor = storeSettings.secondaryColor || '#6E59A5';
+  const primaryColor = storeSettings.primaryColor || '#0974f1';
+  const secondaryColor = storeSettings.secondaryColor || '#ff4136';
 
   const currentCategoryName = selectedCategoryId
     ? categories.find(c => c.id === selectedCategoryId)?.name
