@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react'; // useEffect e useRef não são usados nesta versão, podem ser removidos se não planeja usá-los aqui
 import { Product, SelectedVariation } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -49,11 +49,10 @@ const ProductCard = ({ product }: ProductCardProps) => {
     
     addToCart(product, quantity, selectedVariations);
     setIsDialogOpen(false);
-    // resetForm() will be called by onOpenChange of Dialog
+    resetForm();
   };
   
   const resetForm = () => {
-    console.log("Resetting form for product:", product.name);
     setQuantity(1);
     setSelectedVariations([]);
     setCalculatedPrice(product.price);
@@ -66,156 +65,123 @@ const ProductCard = ({ product }: ProductCardProps) => {
 
   const isOutOfStock = product.stockControl && typeof product.stockQuantity === 'number' && product.stockQuantity <= 0;
 
-  // Defina cores de fallback para o estado desabilitado do botão, se necessário
-  const disabledBackgroundColor = '#E5E7EB'; // Ex: cinza claro (bg-gray-200)
-  const disabledTextColor = '#6B7280';    // Ex: cinza (text-gray-500)
-
   return (
     <>
-      <Card className="h-full flex flex-col overflow-hidden hover:shadow-lg transition-shadow duration-300 rounded-lg bg-white">
-        <div 
-          className="aspect-[4/3] bg-gray-100 overflow-hidden cursor-pointer relative group" 
-          onClick={handleOpenDialog}
-        >
+      <Card className="h-full overflow-hidden hover:shadow-md transition">
+        <div className="h-48 bg-gray-100 overflow-hidden cursor-pointer" onClick={handleOpenDialog}>
           {mainImage ? (
             <img
               src={mainImage.url}
               alt={product.name}
-              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+              className="h-full w-full object-cover"
               onError={(e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.src = "https://via.placeholder.com/300?text=Imagem"; }}
             />
           ) : (
-            <div className="h-full w-full flex items-center justify-center bg-gray-200 text-gray-400">
-              Sem imagem
+            <div className="h-full w-full flex items-center justify-center bg-gray-200">
+              <span className="text-gray-400">Sem imagem</span>
             </div>
           )}
         </div>
         
-        <CardContent className="p-3 md:p-4 flex flex-col flex-grow">
-          <h3 
-            className="font-semibold text-sm md:text-base cursor-pointer hover:text-primary line-clamp-2 mb-1 flex-grow" 
-            onClick={handleOpenDialog}
-            title={product.name}
-          >
+        <CardContent className="p-4">
+          <h3 className="font-medium cursor-pointer hover:text-primary" onClick={handleOpenDialog}>
             {product.name}
           </h3>
-          
-          <div className="mt-2 pt-2 border-t border-gray-100">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-md md:text-lg" style={{ color: 'var(--secondary-color)' }}>
-                {product.price.toLocaleString('pt-BR', {
-                  style: 'currency',
-                  currency: 'BRL'
-                })}
-              </span>
-              
-              <Button 
-                size="sm"
-                onClick={handleOpenDialog}
-                disabled={isOutOfStock}
-                className="bg-primary text-primary-foreground hover:bg-primary/90 px-3 py-1.5 text-xs md:text-sm"
-              >
-                {isOutOfStock ? "Esgotado" : "Detalhes"}
-              </Button>
-            </div>
+          <p className="text-gray-500 text-sm mt-1 line-clamp-2">
+            {product.description.substring(0, 100)}{product.description.length > 100 ? '...' : ''}
+          </p>
+          <div className="mt-2 flex items-center justify-between">
+            <span className="font-bold" style={{ color: 'var(--secondary-color)' }}>
+              {product.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+            </span>
+            <Button size="sm" variant="outline" onClick={handleOpenDialog} disabled={isOutOfStock}>
+              {isOutOfStock ? "Esgotado" : <>Ver detalhes</>}
+            </Button>
           </div>
         </CardContent>
       </Card>
       
-      <Dialog open={isDialogOpen} onOpenChange={(open) => {
+      <Dialog open={isDialogOpen} onOpenChange={(open) => { // Adicionado onOpenChange para resetar no fechamento
         setIsDialogOpen(open);
         if (!open) {
           resetForm();
         }
       }}>
-        <DialogContent className="w-[90%] max-w-md sm:max-w-lg max-h-[85vh] overflow-y-auto rounded-lg p-0 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]">
-          <DialogHeader className="p-4 sm:p-6 pb-3 sm:pb-4 border-b sticky top-0 bg-white z-10">
-            <DialogTitle className="text-lg sm:text-xl font-semibold">{product.name}</DialogTitle>
+        {/* Sua classe original do DialogContent era "sm:max-w-[550px]"
+            Eu tinha sugerido "w-[90%] max-w-md sm:max-w-lg max-h-[85vh] overflow-y-auto rounded-lg"
+            Vou manter a sua original para não alterar o layout, mas adicionei overflow-y-auto se precisar.
+            Se a sua classe original já era "w-[80%] max-w-md sm:max-w-lg max-h-[85vh] overflow-y-auto rounded-lg", então está OK.
+        */}
+        <DialogContent className="sm:max-w-[550px] max-h-[85vh] overflow-y-auto rounded-lg"> {/* Mantendo sua classe original + max-h e overflow */}
+          <DialogHeader>
+            <DialogTitle>{product.name}</DialogTitle>
           </DialogHeader>
           
-          <div className="grid gap-4 p-4 sm:p-6 pt-3 sm:pt-4">
+          {/* Sua estrutura interna original com padding */}
+          <div className="grid gap-4 mt-2 py-4"> 
             <ProductImageGallery images={product.images} productName={product.name} />
-            
-            {product.description && (
-              <div className="mt-2">
-                <h4 className="font-medium mb-1 text-sm text-gray-500">Descrição</h4>
-                <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{product.description}</p>
-              </div>
-            )}
-
-            <div className="flex justify-between items-center mt-2">
+            <div>
+              <h4 className="font-medium mb-1">Descrição</h4>
+              <p className="text-sm text-gray-600">{product.description}</p>
+            </div>
+            <div className="flex justify-between items-center">
               <div>
-                <h4 className="font-medium text-sm text-gray-500">Preço</h4>
-                <p className="text-xl font-bold" style={{ color: 'var(--secondary-color)' }}>
-                  {calculatedPrice.toLocaleString('pt-BR', {
-                    style: 'currency',
-                    currency: 'BRL'
-                  })}
+                <h4 className="font-medium">Preço</h4>
+                <p className="text-lg font-bold" style={{ color: 'var(--secondary-color)' }}>
+                  {calculatedPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                 </p>
               </div>
               {product.stockControl && typeof product.stockQuantity === 'number' && (
                 <div className="text-right">
-                  <span className={`text-sm font-medium ${product.stockQuantity > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {product.stockQuantity > 0 
-                      ? `${product.stockQuantity} disponíveis` 
-                      : "Fora de estoque"}
+                  <span className="text-sm text-gray-500">
+                    {product.stockQuantity > 0 ? `${product.stockQuantity} disponíveis` : "Fora de estoque"}
                   </span>
                 </div>
               )}
             </div>
             
             {product.variationGroups.length > 0 && (
-              <div className="border-t pt-4 mt-2">
-                <ProductVariations 
-                  variationGroups={product.variationGroups}
-                  onVariationsChange={handleVariationsChange}
+              <ProductVariations 
+                variationGroups={product.variationGroups}
+                onVariationsChange={handleVariationsChange}
+              />
+            )}
+            
+            <div>
+              <Label htmlFor={`quantity-${product.id}`}>Quantidade</Label>
+              <div className="flex items-center mt-1">
+                <Button type="button" variant="outline" size="icon" onClick={decrementQuantity} disabled={quantity <= 1}>
+                  <Minus className="h-4 w-4" />
+                </Button>
+                <Input
+                  id={`quantity-${product.id}`}
+                  type="number"
+                  min="1"
+                  value={quantity}
+                  onChange={(e) => {
+                    const value = parseInt(e.target.value);
+                    setQuantity(isNaN(value) || value < 1 ? 1 : Math.max(1, value)); // Garante que seja pelo menos 1
+                  }}
+                  className="w-20 mx-2 text-center"
+                  tabIndex={-1} // <<--- ÚNICA ALTERAÇÃO SIGNIFICATIVA PARA O FOCO
                 />
+                <Button type="button" variant="outline" size="icon" onClick={incrementQuantity}>
+                  <Plus className="h-4 w-4" />
+                </Button>
               </div>
-            )}
-            
-            {!isOutOfStock && (
-              <div className="border-t pt-4 mt-2">
-                <Label htmlFor={`quantity-${product.id}`} className="text-sm font-medium text-gray-500 mb-1 block">Quantidade</Label>
-                <div className="flex items-center">
-                  <Button type="button" variant="outline" size="icon" onClick={decrementQuantity} disabled={quantity <= 1} aria-label="Diminuir quantidade">
-                    <Minus className="h-4 w-4" />
-                  </Button>
-                  <Input
-                    id={`quantity-${product.id}`}
-                    type="number"
-                    min="1"
-                    value={quantity}
-                    onChange={(e) => {
-                      const value = parseInt(e.target.value);
-                      setQuantity(isNaN(value) || value < 1 ? 1 : value);
-                    }}
-                    className="w-16 h-9 mx-2 text-center border-gray-300 focus:ring-primary focus:border-primary"
-                    tabIndex={-1} 
-                  />
-                  <Button type="button" variant="outline" size="icon" onClick={incrementQuantity} aria-label="Aumentar quantidade">
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            )}
-            
-            <div className="sticky bottom-0 bg-white p-4 border-t border-gray-200 -mx-4 sm:-mx-6 -mb-4 sm:-mb-6">
-              <Button 
-                className="w-full py-3 text-base font-semibold"
-                onClick={handleAddToCart}
-                disabled={isOutOfStock}
-                // CORRIGIDO AQUI:
-                style={{ 
-                  backgroundColor: isOutOfStock ? disabledBackgroundColor : 'var(--primary-color)', 
-                  color: isOutOfStock ? disabledTextColor : 'white' 
-                }}
-              >
-                <ShoppingCart className="mr-2" size={20} />
-                {isOutOfStock 
-                  ? "Produto Esgotado" 
-                  : "Adicionar ao Carrinho"}
-              </Button>
             </div>
+            
+            {/* Mantive seu botão original, apenas corrigindo o uso da variável CSS se você precisar */}
+            <Button 
+              className="mt-4 w-full" 
+              onClick={handleAddToCart} 
+              disabled={isOutOfStock}
+              // Se você quiser usar a cor primária aqui, use 'var(--primary-color)'
+              // Exemplo: style={!isOutOfStock ? { backgroundColor: 'var(--primary-color)', color: 'white' } : {}}
+            >
+              <ShoppingCart className="mr-2" size={18} />
+              {isOutOfStock ? "Produto esgotado" : "Adicionar ao Carrinho"}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
