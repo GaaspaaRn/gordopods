@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react'; // Adicionado useCallback
 import {
   Sheet,
   SheetContent,
@@ -7,36 +7,35 @@ import {
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ShoppingCart as CartIcon, Plus, Minus, Trash2, Send } from "lucide-react"; // Removido ArrowRight e ChevronLeft
+import { ShoppingCart as CartIcon, Plus, Minus, Trash2, Send, ChevronLeft, ArrowRight } from "lucide-react"; // Adicionados ícones
 import { useCart } from "@/contexts/CartContext";
 import { useStoreSettings } from "@/contexts/StoreSettingsContext";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"; // Adicionado FormDescription
-import { useForm, Controller } from "react-hook-form"; // Adicionado Controller
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { useForm } from "react-hook-form"; // Controller não é mais necessário com FormField
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Neighborhood, Order } from "@/types";
+import { Neighborhood, Order } from "@/types"; // Certifique-se que Order e suas sub-tipagens estão corretas
 import { toast } from "sonner";
 import { formatCurrency } from "@/utils/format";
 
-// Schema ÚNICO para todos os campos, endereço se torna opcional no schema base
 const checkoutFormSchema = z.object({
   name: z.string().min(3, { message: "O nome deve ter pelo menos 3 caracteres." }),
   phone: z.string()
     .min(14, { message: "Telefone inválido. Use (XX) XXXXX-XXXX" })
     .max(15, { message: "Telefone inválido." })
-    .refine((val) => /^\(\d{2}\) \d{5}-\d{4}$/.test(val), {
+    .refine((val) => /^\(\d{2}\) \d{5}-\d{4}$/.test(val), { // Regex corrigido para incluir parênteses
       message: "Formato inválido. Use (XX) XXXXX-XXXX",
     }),
   deliveryOption: z.string({ required_error: "Selecione uma opção de entrega." }).min(1,"Selecione uma opção de entrega."),
-  neighborhood: z.string().optional(), // ID do bairro
+  neighborhood: z.string().optional(),
   street: z.string().optional(),
   number: z.string().optional(),
   complement: z.string().optional(),
-  district: z.string().optional(), // Bairro (texto) para endereço
+  district: z.string().optional(),
   notes: z.string().optional(),
 });
 
@@ -44,11 +43,13 @@ type CheckoutFormValues = z.infer<typeof checkoutFormSchema>;
 
 const ShoppingCart = () => {
   const { cart, isCartOpen, toggleCart, closeCart, updateQuantity, removeItem, saveOrderToDatabase, clearCart } = useCart();
-  const { deliverySettings, storeConfig, storeSettings } = useStoreSettings();
+  // CORRIGIDO: Acessar deliverySettings de storeSettings
+  const { storeSettings, storeConfig } = useStoreSettings();
+  const deliverySettings = storeSettings.delivery_settings; 
   
   const [isProcessingOrder, setIsProcessingOrder] = useState(false);
   const [deliveryCost, setDeliveryCost] = useState(0);
-  const [selectedNeighborhoodInfo, setSelectedNeighborhoodInfo] = useState<Neighborhood | null>(null); // Para guardar o objeto Neighborhood
+  const [selectedNeighborhoodInfo, setSelectedNeighborhoodInfo] = useState<Neighborhood | null>(null);
 
   const defaultDeliveryOption = 
     deliverySettings?.pickup?.enabled ? "pickup" : 
@@ -58,36 +59,56 @@ const ShoppingCart = () => {
   const form = useForm<CheckoutFormValues>({
     resolver: zodResolver(checkoutFormSchema),
     defaultValues: { name: "", phone: "", deliveryOption: defaultDeliveryOption, notes: "", street: "", number: "", complement: "", district: "", neighborhood: "" },
-    mode: "onChange", // Valida ao mudar
+    mode: "onChange",
   });
 
   const watchedDeliveryOption = form.watch("deliveryOption");
+  const watchedNeighborhood = form.watch("neighborhood"); // Para observar mudanças no bairro
 
-  // Atualiza o custo de entrega quando a opção ou bairro muda
-  useEffect(() => {
+  // CORRIGIDO: handleDeliveryOptionChange e handleNeighborhoodChange com useCallback e dependências corretas
+  const handleDeliveryOptionChange = useCallback((value: string) => {
+    form.setValue("deliveryOption", value, { shouldValidate: true });
     let cost = 0;
-    if (watchedDeliveryOption === "fixedRate" && deliverySettings?.fixedRate?.enabled) {
+    if (value === "fixedRate" && deliverySettings?.fixedRate?.enabled) {
       cost = deliverySettings.fixedRate.fee;
-    } else if (watchedDeliveryOption === "neighborhood") {
-      const neighborhoodId = form.getValues("neighborhood");
-      if (neighborhoodId && deliverySettings?.neighborhoodRates?.neighborhoods) {
-        const neighborhood = deliverySettings.neighborhoodRates.neighborhoods.find(n => n.id === neighborhoodId);
+    } else if (value === "neighborhood") {
+      const currentNeighborhoodId = form.getValues("neighborhood"); // Pega o valor atual do bairro
+      if (currentNeighborhoodId && deliverySettings?.neighborhoodRates?.neighborhoods) {
+        const neighborhood = deliverySettings.neighborhoodRates.neighborhoods.find(n => n.id === currentNeighborhoodId);
         if (neighborhood) {
-          cost = neighborhood.fee;
-          setSelectedNeighborhoodInfo(neighborhood);
+            cost = neighborhood.fee;
+            setSelectedNeighborhoodInfo(neighborhood);
         } else {
-          setSelectedNeighborhoodInfo(null);
+            setSelectedNeighborhoodInfo(null); // Bairro não encontrado ou inválido
         }
       } else {
-        setSelectedNeighborhoodInfo(null); // Nenhum bairro selecionado
+        setSelectedNeighborhoodInfo(null); // Nenhum bairro selecionado para a opção "neighborhood"
+        cost = 0; // Custo é zero até um bairro ser selecionado
       }
-    } else { // Pickup ou nenhuma opção válida
+    } else { // Pickup
       setSelectedNeighborhoodInfo(null);
     }
     setDeliveryCost(cost);
-  }, [watchedDeliveryOption, form, deliverySettings, setSelectedNeighborhoodInfo]);
+    if (value !== "neighborhood") {
+      form.setValue("neighborhood", "", { shouldValidate: true }); // Limpa o bairro se a opção não for "neighborhood"
+    }
+  }, [form, deliverySettings]); // Removido setSelectedNeighborhoodInfo, pois é estado local
 
-  // Reset form e estado do carrinho ao abrir/fechar
+
+  const handleNeighborhoodChange = useCallback((neighborhoodId: string) => {
+    form.setValue("neighborhood", neighborhoodId, { shouldValidate: true }); // Atualiza o valor no form
+    if (!deliverySettings?.neighborhoodRates?.neighborhoods) return;
+    const neighborhood = deliverySettings.neighborhoodRates.neighborhoods.find(n => n.id === neighborhoodId);
+    if (neighborhood) {
+      setSelectedNeighborhoodInfo(neighborhood);
+      setDeliveryCost(neighborhood.fee);
+    } else {
+      setSelectedNeighborhoodInfo(null);
+      setDeliveryCost(0); // Reseta custo se nenhum bairro válido for selecionado
+    }
+  }, [form, deliverySettings]); // Removido setSelectedNeighborhoodInfo e setDeliveryCost da lista de dependências
+
+
   useEffect(() => {
     if (isCartOpen) {
       const newDefaultDeliveryOption = 
@@ -99,69 +120,61 @@ const ShoppingCart = () => {
         deliveryOption: newDefaultDeliveryOption, 
         notes: "", street: "", number: "", complement: "", district: "", neighborhood: "" 
       });
-      handleDeliveryOptionChange(newDefaultDeliveryOption); // Recalcula custo
+      if (newDefaultDeliveryOption) {
+          handleDeliveryOptionChange(newDefaultDeliveryOption);
+      } else {
+          setDeliveryCost(0);
+      }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isCartOpen, deliverySettings, form.reset]);
+  }, [isCartOpen, deliverySettings, form, handleDeliveryOptionChange]); // form.reset removido, pois ele próprio não deve ser dependência
+                                                                   // handleDeliveryOptionChange adicionado
 
-
-  const { field: phoneFormField } = form.register("phone");
-  const handlePhoneInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let value = e.target.value.replace(/\D/g, '');
-    if (value.length > 11) value = value.substring(0, 11);
-    let formattedValue = "";
-    if (value.length > 0) formattedValue = `(${value.slice(0, 2)}`;
-    if (value.length > 2) formattedValue += `) ${value.slice(2, 7)}`;
-    if (value.length > 7) formattedValue += `-${value.slice(7, 11)}`;
-    phoneFormField.onChange(formattedValue);
+  const formatPhoneNumber = (value: string): string => {
+    let v = value.replace(/\D/g, '');
+    if (v.length > 11) v = v.substring(0, 11);
+    let formatted = "";
+    if (v.length > 0) formatted = `(${v.slice(0, 2)}`;
+    if (v.length > 2) formatted += `) ${v.slice(2, 7)}`;
+    if (v.length > 7) formatted += `-${v.slice(7, 11)}`;
+    return formatted;
   };
   
   const calculateTotal = () => cart.subtotal + deliveryCost;
   const generateOrderNumber = () => Date.now().toString().slice(-6) + Math.floor(Math.random() * 1000).toString().padStart(3, '0');
   
   const onSubmit = async (data: CheckoutFormValues) => {
+    // ... (Sua lógica onSubmit como antes)
     if (isProcessingOrder) return;
     setIsProcessingOrder(true);
     try {
       if (cart.items.length === 0) { toast.error('Seu carrinho está vazio.'); setIsProcessingOrder(false); return; }
-      
-      // Validação condicional do endereço
       if (data.deliveryOption !== "pickup") {
-        if (!data.street || !data.number || !data.district) {
-          toast.error('Para entrega, preencha Rua, Número e Bairro.');
-          form.setError("street", { type: "manual", message: !data.street ? "Campo obrigatório" : "" });
-          form.setError("number", { type: "manual", message: !data.number ? "Campo obrigatório" : "" });
-          form.setError("district", { type: "manual", message: !data.district ? "Campo obrigatório" : "" });
-          setIsProcessingOrder(false);
-          return;
-        }
-        if (data.deliveryOption === "neighborhood" && !data.neighborhood) {
-            toast.error("Selecione um bairro para entrega.");
-            form.setError("neighborhood", {type: "manual", message: "Selecione um bairro"});
-            setIsProcessingOrder(false);
-            return;
-        }
+        let addressError = false;
+        if (!data.street) { form.setError("street", { type: "manual", message: "Rua é obrigatória." }); addressError = true; }
+        if (!data.number) { form.setError("number", { type: "manual", message: "Número é obrigatório." }); addressError = true; }
+        if (!data.district) { form.setError("district", { type: "manual", message: "Bairro (endereço) é obrigatório." }); addressError = true; }
+        if (data.deliveryOption === "neighborhood" && !data.neighborhood) { form.setError("neighborhood", {type: "manual", message: "Selecione um bairro para entrega."}); addressError = true; }
+        if (addressError) { toast.error('Preencha os campos de endereço obrigatórios.'); setIsProcessingOrder(false); return; }
       }
 
       const orderNumber = generateOrderNumber();
       const address = data.deliveryOption !== "pickup" ? `${data.street}, ${data.number}${data.complement ? `, ${data.complement}` : ''} - ${data.district}` : '';
-      
       let deliveryMethod = '';
       let deliveryOptionType: Order['deliveryOption']['type'] = 'pickup';
-      let neighborhoodDBInfo: Order['deliveryOption']['neighborhoodIdName'] = undefined;
-
+      // CORRIGIDO: Uso de selectedNeighborhoodInfo
+      let neighborhoodDBInfo: Pick<Neighborhood, 'id' | 'name'> | undefined = undefined; 
       if (data.deliveryOption === "pickup") { deliveryMethod = "Retirada no Local"; deliveryOptionType = "pickup"; }
       else if (data.deliveryOption === "fixedRate" && deliverySettings?.fixedRate) { deliveryMethod = `Entrega Taxa Fixa: ${formatCurrency(deliverySettings.fixedRate.fee)}`; deliveryOptionType = "fixedRate"; }
       else if (data.deliveryOption === "neighborhood" && selectedNeighborhoodInfo) { deliveryMethod = `Entrega ${selectedNeighborhoodInfo.name}: ${formatCurrency(selectedNeighborhoodInfo.fee)}`; deliveryOptionType = "neighborhood"; neighborhoodDBInfo = { id: selectedNeighborhoodInfo.id, name: selectedNeighborhoodInfo.name };}
-      else if (data.deliveryOption === "neighborhood" && !selectedNeighborhoodInfo) {
-          toast.error("Bairro selecionado para entrega é inválido."); // Fallback
+      else if (data.deliveryOption === "neighborhood" && !selectedNeighborhoodInfo && data.neighborhood) {
+          toast.error("Bairro selecionado para entrega é inválido ou não encontrado.");
           setIsProcessingOrder(false);
           return;
       }
 
-
       const orderItemsText = cart.items.map(item => `\n- ${item.quantity}x ${item.productName}${item.selectedVariations.length > 0 ? ` (${item.selectedVariations.map(v => `${v.groupName}: ${v.optionName}`).join(', ')})` : ''} - ${formatCurrency(item.totalPrice / item.quantity)} cada = ${formatCurrency(item.totalPrice)}`).join('');
       const total = calculateTotal();
+      // CORRIGIDO: Tipagem de orderForDb.deliveryOption para corresponder a OrderDeliveryOption (que deve ter neighborhoodId e neighborhoodName opcionais)
       const orderForDb: Order = { id: crypto.randomUUID(), orderNumber, customer: { name: data.name, phone: data.phone, address: data.deliveryOption !== "pickup" ? { street: data.street || '', number: data.number || '', complement: data.complement, district: data.district || ''} : undefined }, items: cart.items, subtotal: cart.subtotal, deliveryOption: { type: deliveryOptionType, name: deliveryMethod, fee: deliveryCost, neighborhoodId: neighborhoodDBInfo?.id, neighborhoodName: neighborhoodDBInfo?.name }, total, notes: data.notes, status: 'new', createdAt: new Date().toISOString(), whatsappSent: false };
       let message = `*Pedido Loja ${storeSettings?.storeName || 'Gordopods'}!*\n*Pedido:* #${orderNumber}\n\n*Cliente:* ${data.name}\n*Telefone:* ${data.phone}${address ? `\n*Endereço:* ${address}` : ''}\n\n*Itens:*${orderItemsText}\n\n*Subtotal:* ${formatCurrency(cart.subtotal)}\n*Entrega (${deliveryMethod.split(':')[0]}):* ${formatCurrency(deliveryCost)}\n*Total:* ${formatCurrency(total)}${data.notes ? `\n\n*Obs:* ${data.notes}` : ''}`;
       const whatsappNumber = storeConfig?.whatsappNumber?.replace(/\D/g, '') || '';
@@ -169,7 +182,6 @@ const ShoppingCart = () => {
       
       await saveOrderToDatabase({ ...orderForDb, whatsappSent: true });
       const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`;
-      
       toast.success('Redirecionando para o WhatsApp...');
       setTimeout(() => {
         window.location.href = whatsappUrl;
@@ -177,30 +189,38 @@ const ShoppingCart = () => {
         form.reset({ deliveryOption: defaultDeliveryOption, name: "", phone: "", notes: "", street: "", number: "", complement: "", district: "", neighborhood: "" });
         clearCart();
       }, 1000);
-      
     } catch (error) { console.error('Error processing order:', error); toast.error('Erro ao processar pedido.');
     } finally { setIsProcessingOrder(false); }
   };
+  
+  const handleSheetOpenChange = (open: boolean) => {
+    if (!open && isCartOpen) { 
+      // Manter o estado atual do formulário se o usuário apenas fechar
+      // O reset agora ocorre no useEffect quando isCartOpen se torna true
+    }
+    if (isCartOpen !== open) {
+        toggleCart();
+    }
+  };
 
   return (
-    <Sheet open={isCartOpen} onOpenChange={toggleCart}> {/* toggleCart lida com o estado de abertura */}
+    <Sheet open={isCartOpen} onOpenChange={handleSheetOpenChange}>
       <SheetContent className="w-full sm:max-w-md flex flex-col p-0 dark:bg-slate-950">
         <SheetHeader className="p-4 sm:p-6 pb-3 sm:pb-4 border-b dark:border-slate-800 shrink-0 bg-background dark:bg-slate-900 sticky top-0 z-10">
           <SheetTitle className="flex items-center text-base sm:text-lg">
             <CartIcon className="mr-2" size={20} />
-            Carrinho de Compras
+            Carrinho de Compras e Checkout
           </SheetTitle>
         </SheetHeader>
         
-        {/* Área Principal: Itens e Formulário (Rolável) */}
         <ScrollArea className="flex-grow">
           <div className="p-4 sm:p-6 space-y-4">
             {cart.items.length === 0 ? (
               <div className="flex flex-col items-center justify-center text-center py-12 min-h-[calc(100vh-250px)] sm:min-h-[auto]">
-                <CartIcon size={48} className="text-gray-300 dark:text-gray-600 mb-4" />
-                <h3 className="text-lg font-medium">Seu carrinho está vazio</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Adicione produtos para continuar</p>
-                <Button className="mt-6" onClick={closeCart}>Continuar Comprando</Button>
+                  <CartIcon size={48} className="text-gray-300 dark:text-gray-600 mb-4" />
+                  <h3 className="text-lg font-medium">Seu carrinho está vazio</h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Adicione produtos para continuar</p>
+                  <Button className="mt-6" onClick={closeCart}>Continuar Comprando</Button>
               </div>
             ) : (
               <>
@@ -208,7 +228,6 @@ const ShoppingCart = () => {
                 <div className="space-y-3">
                   {cart.items.map((item) => (
                     <div key={item.id} className="flex gap-3 py-3 border-b dark:border-slate-700 last:border-b-0">
-                      {/* ... (JSX do item do carrinho como antes - omitido para brevidade) ... */}
                        <div className="w-16 h-16 sm:w-20 sm:h-20 bg-gray-100 dark:bg-slate-800 rounded overflow-hidden flex-shrink-0">
                           {item.imageUrl ? <img src={item.imageUrl} alt={item.productName} className="w-full h-full object-cover" onError={(e: React.SyntheticEvent<HTMLImageElement>) => {e.currentTarget.src = "https://via.placeholder.com/100?text=Item";}}/> : <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">Sem img</div>}
                         </div>
@@ -229,47 +248,52 @@ const ShoppingCart = () => {
                   ))}
                 </div>
 
-                {/* Observações */}
-                <Textarea 
-                  placeholder="Observações sobre o pedido..." 
-                  className="text-sm"
-                  rows={2}
-                  {...form.register("notes")}
-                />
-
-                {/* Formulário Integrado (Dados do Cliente, Entrega, Endereço) */}
+                {/* Formulário Integrado */}
                 <Form {...form}>
-                  <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4"> {/* onSubmit é do form, botão chamará form.handleSubmit */}
+                  <form className="space-y-4" noValidate> {/* Adicionado noValidate para deixar a validação apenas com Zod/RHF */}
+                    <FormField control={form.control} name="notes" render={({ field }) => (<FormItem><FormLabel className="text-xs sm:text-sm">Observações</FormLabel><FormControl><Textarea placeholder="Alguma observação para o pedido?" className="text-sm" rows={2} {...field} /></FormControl><FormMessage /></FormItem>)}/>
                     
-                    {/* Dados do Cliente */}
                     <div className="border-t dark:border-slate-700 pt-4">
                         <h3 className="text-md font-semibold mb-2">Seus Dados</h3>
                         <FormField control={form.control} name="name" render={({ field }) => ( <FormItem> <FormLabel className="text-xs sm:text-sm">Nome Completo*</FormLabel> <FormControl><Input placeholder="Seu nome" {...field} className="text-sm"/></FormControl> <FormMessage /> </FormItem> )}/>
-                        <div className="mt-3"> {/* Espaçamento para o telefone */}
-                            <FormField control={form.control} name="phone" render={({ field: currentPhoneField }) => ( <FormItem> <FormLabel className="text-xs sm:text-sm">Telefone/WhatsApp*</FormLabel> <FormControl><Input placeholder="(XX) XXXXX-XXXX" {...currentPhoneField} value={form.watch('phone')} onChange={(e) => handlePhoneInput(e)} className="text-sm"/></FormControl> <FormMessage /> </FormItem> )}/>
+                        <div className="mt-3">
+                            {/* CORRIGIDO: Uso de FormField para o telefone */}
+                            <FormField
+                                control={form.control}
+                                name="phone"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel className="text-xs sm:text-sm">Telefone/WhatsApp*</FormLabel>
+                                        <FormControl>
+                                            <Input 
+                                                placeholder="(XX) XXXXX-XXXX" 
+                                                {...field} // Espalha as props do field do Controller/FormField
+                                                onChange={(e) => field.onChange(formatPhoneNumber(e.target.value))} // Usa formatPhoneNumber
+                                                className="text-sm"
+                                            />
+                                        </FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
                         </div>
                     </div>
 
-                    {/* Opções de Entrega */}
                     <div className="border-t dark:border-slate-700 pt-4">
                         <h3 className="text-md font-semibold mb-2">Opções de Entrega</h3>
-                        <FormField
-                            control={form.control}
-                            name="deliveryOption"
-                            render={({ field }) => (
-                                <FormItem className="space-y-2">
-                                <RadioGroup onValueChange={(value) => {field.onChange(value); handleDeliveryOptionChange(value);}} defaultValue={field.value} className="flex flex-col gap-2">
-                                    {deliverySettings?.pickup?.enabled && ( <FormItem className="flex items-start space-x-3 border dark:border-slate-700 p-3 rounded-md hover:border-primary dark:hover:border-primary transition-colors cursor-pointer" onClick={() => form.setValue("deliveryOption", "pickup", { shouldValidate: true })}> <FormControl><RadioGroupItem value="pickup" /></FormControl> <div className="w-full grid gap-0.5"> <FormLabel className="font-medium cursor-pointer">Retirada no Local</FormLabel> <FormDescription className="text-xs">{deliverySettings.pickup.instructions}</FormDescription> <p className="text-xs sm:text-sm font-medium">R$ 0,00</p></div> </FormItem> )}
-                                    {deliverySettings?.fixedRate?.enabled && ( <FormItem className="flex items-start space-x-3 border dark:border-slate-700 p-3 rounded-md hover:border-primary dark:hover:border-primary transition-colors cursor-pointer" onClick={() => form.setValue("deliveryOption", "fixedRate", { shouldValidate: true })}> <FormControl><RadioGroupItem value="fixedRate" /></FormControl> <div className="w-full grid gap-0.5"> <FormLabel className="font-medium cursor-pointer">Entrega com Taxa Fixa</FormLabel> <FormDescription className="text-xs">{deliverySettings.fixedRate.description}</FormDescription> <p className="text-xs sm:text-sm font-medium">{formatCurrency(deliverySettings.fixedRate.fee)}</p> </div> </FormItem> )}
-                                    {deliverySettings?.neighborhoodRates?.enabled && deliverySettings.neighborhoodRates.neighborhoods.length > 0 && ( <FormItem className="flex items-start space-x-3 border dark:border-slate-700 p-3 rounded-md hover:border-primary dark:hover:border-primary transition-colors cursor-pointer" onClick={() => form.setValue("deliveryOption", "neighborhood", { shouldValidate: true })}> <FormControl><RadioGroupItem value="neighborhood" /></FormControl> <div className="w-full grid gap-0.5"> <FormLabel className="font-medium cursor-pointer">Entrega por Bairro</FormLabel> {form.watch("deliveryOption") === "neighborhood" && ( <div className="mt-1"> <Label htmlFor="neighborhoodSelectCart" className="text-xs">Selecione o bairro</Label> <select id="neighborhoodSelectCart" className="w-full mt-1 rounded-md border border-input bg-background px-3 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary dark:border-slate-600 dark:bg-slate-800" {...form.register("neighborhood")} onChange={(e) => handleNeighborhoodChange(e.target.value)} onClick={(e) => e.stopPropagation()} > <option value="">Selecione...</option> {deliverySettings.neighborhoodRates.neighborhoods.map((n) => ( <option key={n.id} value={n.id}>{n.name} - {formatCurrency(n.fee)}</option> ))} </select> <FormMessage>{form.formState.errors.neighborhood?.message}</FormMessage></div> )} </div> </FormItem> )}
+                        <FormField control={form.control} name="deliveryOption" render={({ field }) => (
+                            <FormItem className="space-y-2">
+                                <RadioGroup onValueChange={(value) => {field.onChange(value); handleDeliveryOptionChange(value);}} value={field.value || ""} className="flex flex-col gap-2"> {/* Adicionado value || "" */}
+                                    {deliverySettings?.pickup?.enabled && ( <FormItem className="flex items-start space-x-3 border dark:border-slate-700 p-3 rounded-md hover:border-primary dark:hover:border-primary transition-colors cursor-pointer" onClick={() => {form.setValue("deliveryOption", "pickup", { shouldValidate: true }); handleDeliveryOptionChange("pickup");}}> <FormControl><RadioGroupItem value="pickup" /></FormControl> <div className="w-full grid gap-0.5"> <FormLabel className="font-medium cursor-pointer">Retirada no Local</FormLabel> <FormDescription className="text-xs">{deliverySettings.pickup.instructions}</FormDescription> <p className="text-xs sm:text-sm font-medium">R$ 0,00</p></div> </FormItem> )}
+                                    {deliverySettings?.fixedRate?.enabled && ( <FormItem className="flex items-start space-x-3 border dark:border-slate-700 p-3 rounded-md hover:border-primary dark:hover:border-primary transition-colors cursor-pointer" onClick={() => {form.setValue("deliveryOption", "fixedRate", { shouldValidate: true }); handleDeliveryOptionChange("fixedRate");}}> <FormControl><RadioGroupItem value="fixedRate" /></FormControl> <div className="w-full grid gap-0.5"> <FormLabel className="font-medium cursor-pointer">Entrega com Taxa Fixa</FormLabel> <FormDescription className="text-xs">{deliverySettings.fixedRate.description}</FormDescription> <p className="text-xs sm:text-sm font-medium">{formatCurrency(deliverySettings.fixedRate.fee)}</p> </div> </FormItem> )}
+                                    {deliverySettings?.neighborhoodRates?.enabled && deliverySettings.neighborhoodRates.neighborhoods.length > 0 && ( <FormItem className="flex items-start space-x-3 border dark:border-slate-700 p-3 rounded-md hover:border-primary dark:hover:border-primary transition-colors cursor-pointer" onClick={() => {form.setValue("deliveryOption", "neighborhood", { shouldValidate: true }); handleDeliveryOptionChange("neighborhood");}}> <FormControl><RadioGroupItem value="neighborhood" /></FormControl> <div className="w-full grid gap-0.5"> <FormLabel className="font-medium cursor-pointer">Entrega por Bairro</FormLabel> {form.watch("deliveryOption") === "neighborhood" && ( <div className="mt-1"> <Label htmlFor="neighborhoodSelectCart" className="text-xs">Selecione o bairro</Label> <select id="neighborhoodSelectCart" className="w-full mt-1 rounded-md border border-input bg-background px-3 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary dark:border-slate-600 dark:bg-slate-800" {...form.register("neighborhood")} onChange={(e) => handleNeighborhoodChange(e.target.value)} onClick={(e) => e.stopPropagation()} > <option value="">Selecione...</option> {deliverySettings.neighborhoodRates.neighborhoods.map((n) => ( <option key={n.id} value={n.id}>{n.name} - {formatCurrency(n.fee)}</option> ))} </select> <FormMessage>{form.formState.errors.neighborhood?.message}</FormMessage></div> )} </div> </FormItem> )}
                                 </RadioGroup>
-                                <FormMessage />
+                                <FormMessage>{form.formState.errors.deliveryOption?.message}</FormMessage>
                                 </FormItem>
                             )}
                         />
                     </div>
 
-                    {/* Endereço (Condicional) */}
                     {form.watch("deliveryOption") && form.watch("deliveryOption") !== "pickup" && (
                       <div className="space-y-3 border-t dark:border-slate-700 pt-4">
                         <h3 className="text-md font-semibold">Endereço de Entrega</h3>
@@ -281,6 +305,7 @@ const ShoppingCart = () => {
                         <FormField control={form.control} name="district" render={({ field }) => ( <FormItem> <FormLabel className="text-xs sm:text-sm">Bairro*</FormLabel> <FormControl><Input placeholder="Ex: Centro" {...field} className="text-sm"/></FormControl> <FormMessage /> </FormItem> )}/>
                       </div>
                     )}
+                    {/* O botão de submit está no footer global */}
                   </form>
                 </Form>
               </>
@@ -296,7 +321,7 @@ const ShoppingCart = () => {
                     <span>Subtotal:</span>
                     <span className="font-medium">{formatCurrency(cart.subtotal)}</span>
                 </div>
-                {form.watch("deliveryOption") !== "pickup" && deliveryCost > 0 && ( // Mostrar apenas se houver custo de entrega
+                {form.watch("deliveryOption") !== "pickup" && deliveryCost >= 0 && ( // >=0 para mostrar mesmo se for 0 e não pickup
                     <div className="flex justify-between">
                         <span>Entrega:</span>
                         <span className="font-medium">{formatCurrency(deliveryCost)}</span>
@@ -319,10 +344,10 @@ const ShoppingCart = () => {
                 Continuar Comprando
               </Button>
               <Button 
-                type="button" // O submit é acionado pelo form.handleSubmit
+                type="button" 
                 onClick={form.handleSubmit(onSubmit)}
-                className="w-full order-1 sm:order-2 text-white" // Adicionado text-white
-                style={{backgroundColor: 'var(--secondary-color)'}} // Cor secundária da loja
+                className="w-full order-1 sm:order-2 text-white" 
+                style={{backgroundColor: 'var(--secondary-color)'}} 
                 disabled={isProcessingOrder || (form.formState.isSubmitted && !form.formState.isValid) || cart.items.length === 0}
               >
                 {isProcessingOrder ? 
