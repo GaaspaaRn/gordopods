@@ -9,7 +9,7 @@ interface CategoryContextType {
   isLoading: boolean;
   // Ajuste os parâmetros de createCategory se você não tiver imageUrl ou order
   createCategory: (name: string, description?: string, active?: boolean) => Promise<string | null>;
-  updateCategory: (id: string, updates: Partial<Omit<Category, 'id' | 'createdAt' | 'updatedAt' | 'order' | 'imageUrl'>>) => Promise<void>;
+  updateCategory: (id: string, updates: Partial<Omit<Category, 'id' | 'createdAt' | 'updatedAt'>>) => Promise<void>;
   deleteCategory: (id: string) => Promise<void>;
   // reorderCategories pode não ser necessário se não houver coluna de ordem
   // Se você quiser ordenar por nome ou data no frontend, isso pode ser feito no momento da exibição.
@@ -51,14 +51,6 @@ export function CategoryProvider({ children }: { children: ReactNode }) {
           active: item.active !== undefined ? item.active : true,
           createdAt: item.created_at,
           updatedAt: item.updated_at,
-          // order: item.order_position !== undefined ? item.order_position : index, // Removido se não existe
-        })) as Omit<Category, 'imageUrl' | 'order'>[]; // Ajuste o tipo se necessário
-        
-        // Para satisfazer o tipo Category completo, adicione valores padrão se as props opcionais não vierem do DB
-        currentCategories = categoriesData.map(c => ({
-            ...c,
-            imageUrl: c.imageUrl || '', // Mantém se o tipo Category tem, mas DB não
-            order: c.order || 0,       // Mantém se o tipo Category tem, mas DB não
         }));
 
         console.log('[CategoryContext] (loadCategories) Categorias carregadas/recarregadas do Supabase.');
@@ -114,7 +106,9 @@ export function CategoryProvider({ children }: { children: ReactNode }) {
     if (!isAuthenticated) { toast.error("Login necessário para criar categoria."); return null; }
     setIsLoading(true);
     try {
+      const newId = crypto.randomUUID();
       const categoryToInsert = {
+        id: newId,
         name: name.trim(),
         description,
         active,

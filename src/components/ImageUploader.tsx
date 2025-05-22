@@ -41,7 +41,7 @@ export function ImageUploader({
       return;
     }
 
-    try {
+        try {
       setIsUploading(true);
 
       // Criar URL de preview local
@@ -51,36 +51,59 @@ export function ImageUploader({
       // Gerar nome de arquivo único
       const fileExt = file.name.split('.').pop();
       const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}.${fileExt}`;
-      const filePath = `${folderPath}/${fileName}`;
+      const filePath = `${folderPath}/${fileName}`; // Ex: 'products/timestamp-random.png'
+
+      // --- ADICIONAR LOGS AQUI PARA DEBUG ---
+      console.log('[ImageUploader] Iniciando upload...');
+      console.log('[ImageUploader] Bucket:', bucketName); // Deve ser 'gordopods-assets'
+      console.log('[ImageUploader] File Path no Storage:', filePath);
+      console.log('[ImageUploader] Objeto File:', file); // Verifique nome, tamanho, tipo
+      console.log('[ImageUploader] Opções de Upload:', { cacheControl: '3600', upsert: false });
+      const { data: authData } = await supabase.auth.getUser();
+      console.log('[ImageUploader] Usuário autenticado:', authData.user ? authData.user.id : 'Nenhum usuário logado');
+      // --- FIM DOS LOGS PARA DEBUG ---
 
       // Upload para o Supabase Storage
       const { data, error } = await supabase.storage
-        .from(bucketName)
-        .upload(filePath, file, {
+        .from(bucketName) // Deve ser 'gordopods-assets'
+        .upload(filePath, file, { // 'file' aqui é o objeto File do input
           cacheControl: '3600',
           upsert: false
         });
 
-      if (error) throw error;
+      if (error) {
+        // --- LOG DETALHADO DO ERRO DO STORAGE ---
+        console.error('[ImageUploader] ERRO NO UPLOAD PARA O STORAGE:', error);
+        // --- FIM DO LOG DETALHADO ---
+        throw error; // Re-lança o erro para ser pego pelo catch externo
+      }
 
       // Obter URL pública - corrigido para usar o método adequado
       const { data: publicUrlData } = supabase.storage
         .from(bucketName)
         .getPublicUrl(filePath);
 
-      if (!publicUrlData.publicUrl) throw new Error('Falha ao obter URL pública');
+      if (!publicUrlData.publicUrl) {
+        console.error('[ImageUploader] Falha ao obter URL pública após upload, publicUrlData:', publicUrlData);
+        throw new Error('Falha ao obter URL pública');
+      }
 
       // Notificar componente pai sobre a nova URL
       onImageChange(publicUrlData.publicUrl);
       toast.success('Imagem enviada com sucesso!');
-    } catch (error) {
-      console.error('Erro no upload:', error);
-      toast.error('Falha ao enviar imagem. Tente novamente.');
+
+    } catch (error: any) { // Captura o erro lançado pelo 'throw error' ou outros
+      console.error('[ImageUploader] Erro final no bloco catch:', error);
+      // A mensagem de erro que você está vendo no console (com RLS) vem daqui
+      // porque 'error' pode ser o objeto de erro do Supabase { message, error, statusCode }
+      // ou um objeto Error padrão.
+      const errorMessage = error.message || 'Falha ao enviar imagem. Tente novamente.';
+      toast.error(errorMessage);
+      
       // Manter a URL atual em caso de erro
       setPreviewUrl(currentImageUrl || null);
     } finally {
       setIsUploading(false);
-      // Limpar input para permitir selecionar o mesmo arquivo novamente
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };

@@ -1,5 +1,6 @@
+import type { Database, Tables } from '@/types/supabase';
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { StoreSettings, SocialLink, DeliverySettings, Neighborhood, StoreConfig } from '@/types';
+import { StoreSettings, SocialLink, DeliverySettings, Neighborhood, StoreConfig, ContactInfo } from '@/types';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useAuth } from './AuthContext';
@@ -84,39 +85,72 @@ export function StoreSettingsProvider({ children }: { children: ReactNode }) {
       console.log('[StoreSettingsContext] Iniciando fetch. Auth loading:', authIsLoading);
       setIsLoading(true);
       try {
-        const { data: settingsData, error: settingsError } = await supabase
-          .from('store_settings')
-          .select('*')
-          .eq('id', STORE_SETTINGS_ROW_ID)
-          .maybeSingle();
-
+        const { data, error: settingsError } = await supabase
+  .from('store_settings')
+  .select(` 
+    id, store_name, store_description, logo_url, banner_url, whatsapp_number,
+    primary_color, secondary_color, social_links, contact_info, delivery_settings 
+  `) // SEU SELECT EXPLÍCITO
+  .eq('id', STORE_SETTINGS_ROW_ID)
+  .maybeSingle();
+  const settingsDataTyped: Tables<'store_settings'>['Row'] | null = data;
+   console.log('[StoreSettingsContext] RAW settingsDataTyped (com tipo explícito):', settingsDataTyped);
         if (settingsError && settingsError.code !== 'PGRST116') {
           console.error('Erro ao buscar store_settings do Supabase:', settingsError);
         }
 
         let loadedSettings = DEFAULT_STORE_SETTINGS; // Começa com o default completo
-        if (settingsData) {
+
+        // 4. Use settingsDataTyped (que agora tem o tipo correto) para o mapeamento
+        if (settingsDataTyped) { 
+          // Agora, ao acessar settingsDataTyped.primary_color, etc., o TypeScript deveria usar o tipo
+          // de Tables<'store_settings'>['Row'] que vem do seu supabase.ts.
+          // Os erros "propriedade X não existe" DEVEM desaparecer aqui se 'supabase.ts' 
+          // estiver correto e o servidor TS reiniciado.
           loadedSettings = {
             ...DEFAULT_STORE_SETTINGS, // Garante que todas as chaves default existam
-            ...settingsData,          // Sobrescreve com dados do DB
-            // Garante que sub-objetos sejam mesclados ou usem default se nulos no DB
-            socialLinks: settingsData.social_links ?? [],
-            contactInfo: settingsData.contact_info ?? DEFAULT_STORE_SETTINGS.contactInfo,
-            delivery_settings: settingsData.delivery_settings 
-              ? (typeof settingsData.delivery_settings === 'string' 
-                  ? JSON.parse(settingsData.delivery_settings) 
-                  : { ...DEFAULT_DELIVERY_SETTINGS, ...settingsData.delivery_settings } // Mescla com default
+            
+            // Mapeando dos nomes do DB (snake_case) para os nomes do seu tipo StoreSettings (alguns camelCase)
+            storeName: settingsDataTyped.store_name ?? DEFAULT_STORE_SETTINGS.storeName,
+            description: settingsDataTyped.store_description ?? DEFAULT_STORE_SETTINGS.description,
+            logo: settingsDataTyped.logo_url ?? DEFAULT_STORE_SETTINGS.logo,
+            banner: settingsDataTyped.banner_url ?? DEFAULT_STORE_SETTINGS.banner,
+            whatsappNumber: settingsDataTyped.whatsapp_number ?? DEFAULT_STORE_SETTINGS.whatsappNumber,
+            
+            primaryColor: settingsDataTyped.primary_color ?? DEFAULT_STORE_SETTINGS.primaryColor,
+            secondaryColor: settingsDataTyped.secondary_color ?? DEFAULT_STORE_SETTINGS.secondaryColor,
+            
+            // Para colunas JSONB, Supabase geralmente já parseia para objeto/array.
+            // O cast é para garantir ao TypeScript que a estrutura corresponde aos seus tipos manuais.
+            socialLinks: settingsDataTyped.social_links 
+                ? (settingsDataTyped.social_links as unknown as SocialLink[]) 
+                : [], 
+            contactInfo: settingsDataTyped.contact_info 
+                ? (settingsDataTyped.contact_info as unknown as ContactInfo) 
+                : DEFAULT_STORE_SETTINGS.contactInfo,
+            
+            delivery_settings: settingsDataTyped.delivery_settings 
+              ? (typeof settingsDataTyped.delivery_settings === 'string' 
+                  ? JSON.parse(settingsDataTyped.delivery_settings) 
+                  // Se já for objeto, mescla com default para garantir todas as sub-propriedades
+                  : { ...DEFAULT_DELIVERY_SETTINGS, ...(settingsDataTyped.delivery_settings as object) } 
                 ) 
               : DEFAULT_DELIVERY_SETTINGS,
-          } as StoreSettings; // Type assertion para garantir a forma
-          console.log('[StoreSettingsContext] Configurações carregadas do Supabase:', loadedSettings);
+          };
+          // Não precisa do 'as StoreSettings' aqui se o mapeamento for completo e correto.
+          console.log('[StoreSettingsContext] Configurações carregadas do Supabase e mapeadas:', loadedSettings);
           localStorage.setItem('gordopods-store-settings', JSON.stringify(loadedSettings));
-        } else {
+        } else { // Esta parte é se settingsDataTyped for null (nenhum dado do Supabase)
           const storedSettingsStr = localStorage.getItem('gordopods-store-settings');
           if (storedSettingsStr) {
             const parsed = JSON.parse(storedSettingsStr);
-            // Garante que o default seja aplicado se o localStorage estiver incompleto
-            loadedSettings = { ...DEFAULT_STORE_SETTINGS, ...parsed, delivery_settings: parsed.delivery_settings ? { ...DEFAULT_DELIVERY_SETTINGS, ...parsed.delivery_settings } : DEFAULT_DELIVERY_SETTINGS };
+            loadedSettings = { 
+                ...DEFAULT_STORE_SETTINGS, 
+                ...parsed, 
+                delivery_settings: parsed.delivery_settings 
+                    ? { ...DEFAULT_DELIVERY_SETTINGS, ...parsed.delivery_settings } 
+                    : DEFAULT_DELIVERY_SETTINGS 
+            };
             console.log('[StoreSettingsContext] Configurações carregadas do localStorage.');
           } else {
             console.log('[StoreSettingsContext] Nenhuma config no localStorage ou Supabase, usando defaults.');

@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import type { Database } from './types'; // Certifique-se que este tipo Database está correto e atualizado
+import type { Database } from '@/types/supabase';
 
 // Usar valores das variáveis de ambiente Vite
 // Os valores fallback são os seus valores públicos, o que é OK para anon key e URL

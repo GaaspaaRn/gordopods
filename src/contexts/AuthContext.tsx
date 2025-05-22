@@ -4,7 +4,7 @@ import React, { createContext, useState, useContext, useEffect, ReactNode } from
 import { User as AppUser } from '../types'; // Seu tipo de usuário da aplicação
 import { Session, User as SupabaseUser } from '@supabase/supabase-js'; // Tipos do Supabase
 import { toast } from 'sonner';
-import { supabase, fetchUserProfile, updateSocialLink } from '../integrations/supabase/client'; // Seu cliente Supabase inicializado
+import { supabase, } from '../integrations/supabase/client'; // Seu cliente Supabase inicializado
 
 interface AuthContextType {
   user: AppUser | null;

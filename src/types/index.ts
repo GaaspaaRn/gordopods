@@ -6,11 +6,9 @@ export interface Category {
   id: string;
   name: string;
   description: string;
-  imageUrl: string; // Se você não usa/tem no DB, considere tornar opcional ou remover
   active: boolean;
   createdAt: string;
   updatedAt: string;
-  order?: number;
 }
 
 export interface ProductImage {
@@ -24,7 +22,7 @@ export interface ProductVariationOption {
   id: string;
   name: string;
   priceModifier: number;
-  // stock?: number; // Se tiver estoque por opção
+   stock?: number | null;
 }
 
 export interface ProductVariationGroup {
