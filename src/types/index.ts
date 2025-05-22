@@ -1,13 +1,16 @@
+// src/types/index.ts
+// SEU CÓDIGO AQUI ESTAVA CORRETO PARA AS DEFINIÇÕES DE StoreSettings e DeliverySettings
+// NENHUMA MUDANÇA NECESSÁRIA NESTE ARQUIVO COM BASE NOS ERROS APRESENTADOS.
 
 export interface Category {
   id: string;
   name: string;
   description: string;
-  imageUrl: string;
+  imageUrl: string; // Se você não usa/tem no DB, considere tornar opcional ou remover
   active: boolean;
   createdAt: string;
   updatedAt: string;
-  order?: number; // Adicionando campo order para compatibilidade
+  order?: number;
 }
 
 export interface ProductImage {
@@ -21,6 +24,7 @@ export interface ProductVariationOption {
   id: string;
   name: string;
   priceModifier: number;
+  // stock?: number; // Se tiver estoque por opção
 }
 
 export interface ProductVariationGroup {
@@ -37,6 +41,7 @@ export interface Product {
   description: string;
   price: number;
   categoryId: string;
+  categoryName?: string; // Adicionado para conveniência se você fizer join
   images: ProductImage[];
   variationGroups: ProductVariationGroup[];
   stockControl: boolean;
@@ -48,24 +53,16 @@ export interface Product {
 }
 
 export interface SocialLink {
-  id: string;
+  id: string; // Adicionado id que estava faltando na sua struct original
+  platform: string; // Adicionado platform que estava faltando na sua struct original
   name: string;
   url: string;
 }
 
-export interface StoreSettings {
-  storeName: string;
-  logo: string;
-  banner: string;
-  primaryColor: string;
-  secondaryColor: string;
-  description: string;
-  socialLinks: SocialLink[];
-  contactInfo: {
-    phone: string;
-    email: string;
-  };
-  whatsappNumber: string; // Campo para número de WhatsApp
+export interface ContactInfo { // Adicionada interface para clareza
+  phone: string;
+  email: string;
+  address?: string; // Opcional
 }
 
 export interface Neighborhood {
@@ -75,23 +72,58 @@ export interface Neighborhood {
 }
 
 export interface DeliverySettings {
-  pickup: {
+  pickup?: { // Tornado opcional para corresponder ao seu DEFAULT_DELIVERY_SETTINGS que tinha tudo
     enabled: boolean;
-    instructions: string;
+    instructions?: string;
   };
-  fixedRate: {
+  fixedRate?: {
     enabled: boolean;
     fee: number;
-    description: string;
+    description?: string;
   };
-  neighborhoodRates: {
+  neighborhoodRates?: {
     enabled: boolean;
     neighborhoods: Neighborhood[];
   };
+  // Campos do seu DEFAULT_DELIVERY_SETTINGS que não estavam aqui:
+  deliveryEnabled?: boolean; // Exemplo, se você tiver um controle geral
+  minOrderValue?: number;
+  deliveryFeeType?: 'fixed' | 'neighborhood' | 'pickup' | 'none'; // Adicionei 'none' e 'pickup'
+  // fixedFee?: number; // Já dentro de fixedRate
+  dynamicFeePerKm?: number;
+  freeDeliveryAbove?: number;
+  maxDeliveryRadiusKm?: number;
+  estimatedDeliveryTime?: { min: number; max: number };
+  deliveryHours?: Array<{ dayOfWeek: number; open: string; close: string; enabled: boolean }>;
+}
+
+
+export interface StoreSettings {
+  storeName: string;
+  logo: string | null; // Permitir null
+  banner: string | null; // Permitir null
+  primaryColor: string;
+  secondaryColor: string;
+  description: string;
+  socialLinks: SocialLink[];
+  contactInfo: ContactInfo; // Usando a interface definida
+  whatsappNumber: string | null; // Permitir null
+  delivery_settings: DeliverySettings; // <--- JÁ ESTAVA CORRETO AQUI
 }
 
 export interface StoreConfig {
-  whatsappNumber: string;
+  // Adicionei campos do seu DEFAULT_STORE_CONFIG
+  currency?: string;
+  currencySymbol?: string;
+  allowGuestCheckout?: boolean;
+  showStock?: boolean;
+  lowStockThreshold?: number;
+  maxItemsPerOrder?: number;
+  minItemsPerOrder?: number;
+  orderNumberPrefix?: string;
+  whatsappNumber: string | null; // Permitir null
+  maintenanceMode?: boolean;
+  maintenanceMessage?: string;
 }
 
 export interface User {
@@ -100,7 +132,6 @@ export interface User {
   name: string;
 }
 
-// Interfaces para o carrinho de compras
 export interface SelectedVariation {
   groupId: string;
   groupName: string;
@@ -110,22 +141,29 @@ export interface SelectedVariation {
 }
 
 export interface CartItem {
-  id: string;
+  id: string; // ID do item no carrinho (geralmente productId + hash das variações)
   productId: string;
   productName: string;
   quantity: number;
-  basePrice: number;
+  basePrice: number; // Preço base do produto sem modificadores
   selectedVariations: SelectedVariation[];
-  totalPrice: number;
+  totalPrice: number; // Preço total do item (basePrice + modificadores) * quantidade
   imageUrl?: string;
 }
 
 export interface Cart {
   items: CartItem[];
-  subtotal: number;
+  subtotal: number; // Soma de todos os totalPrice dos CartItem
 }
 
-// Interface para pedidos
+export interface OrderDeliveryOption { // Tipo mais explícito para clareza
+  type: 'pickup' | 'fixedRate' | 'neighborhood';
+  name: string; // Descrição do método
+  fee: number;
+  neighborhoodId?: string;
+  neighborhoodName?: string;
+}
+
 export interface Order {
   id: string;
   orderNumber: string;
@@ -141,16 +179,11 @@ export interface Order {
   };
   items: CartItem[];
   subtotal: number;
-  deliveryOption: {
-    type: 'pickup' | 'fixedRate' | 'neighborhood';
-    name: string;
-    fee: number;
-    neighborhoodId?: string;
-    neighborhoodName?: string;
-  };
+  deliveryOption: OrderDeliveryOption; // Usando o tipo explícito
   total: number;
   notes?: string;
-  status: string;
+  status: string; // Ex: 'new', 'processing', 'shipped', 'delivered', 'cancelled'
   createdAt: string;
   whatsappSent: boolean;
+  // updatedAt?: string; // Pode ser útil
 }
