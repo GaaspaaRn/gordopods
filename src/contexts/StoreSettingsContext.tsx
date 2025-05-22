@@ -1,21 +1,24 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { StoreSettings, SocialLink, DeliverySettings, Neighborhood, StoreConfig } from '@/types'; // Certifique-se que StoreSettings inclua delivery_settings
+import { StoreSettings, SocialLink, DeliverySettings, Neighborhood, StoreConfig } from '@/types';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useAuth } from './AuthContext';
 
 // --- VALORES PADRÃO ---
+// Certifique-se que seus tipos em @/types refletem estas estruturas
 const DEFAULT_DELIVERY_SETTINGS: DeliverySettings = {
+  pickup: { enabled: false, instructions: "Retire seu pedido em nosso endereço." },
+  fixedRate: { enabled: false, fee: 0, description: "Taxa de entrega única para toda a cidade." },
+  neighborhoodRates: { enabled: false, neighborhoods: [] },
+  // Adicionando campos faltantes que estavam no seu DEFAULT_DELIVERY_SETTINGS original
   deliveryEnabled: false,
   minOrderValue: 0,
-  deliveryFeeType: 'fixed',
-  fixedFee: 0,
+  deliveryFeeType: 'none',
   dynamicFeePerKm: 0,
   freeDeliveryAbove: 0,
   maxDeliveryRadiusKm: 0,
   estimatedDeliveryTime: { min: 30, max: 60 },
   deliveryHours: [],
-  neighborhoods: [],
 };
 
 const DEFAULT_STORE_SETTINGS: StoreSettings = {
@@ -28,7 +31,7 @@ const DEFAULT_STORE_SETTINGS: StoreSettings = {
   socialLinks: [],
   contactInfo: { phone: '', email: '', address: '' },
   whatsappNumber: '',
-  delivery_settings: DEFAULT_DELIVERY_SETTINGS,
+  delivery_settings: DEFAULT_DELIVERY_SETTINGS, // Inicializa com o default
 };
 
 const DEFAULT_STORE_CONFIG: StoreConfig = {
@@ -48,12 +51,14 @@ const DEFAULT_STORE_CONFIG: StoreConfig = {
 // --- INTERFACE DO CONTEXTO ---
 interface StoreSettingsContextType {
   storeSettings: StoreSettings;
-  updateStoreSettings: (settings: Partial<StoreSettings>) => Promise<void>;
+  deliverySettings: DeliverySettings; // <<< ADICIONADO AQUI PARA ACESSO DIRETO
   isLoading: boolean;
-  addSocialLink: (socialLink: Omit<SocialLink, "id" | "store_settings_id">) => Promise<void>;
-  updateSocialLink: (id: string, socialLink: Partial<Omit<SocialLink, "id" | "store_settings_id">>) => Promise<void>;
+  updateStoreSettings: (settings: Partial<StoreSettings>) => Promise<void>; // Esta já atualiza tudo, incluindo delivery_settings aninhado
+  updateDeliverySettings: (settings: Partial<DeliverySettings>) => Promise<void>; // Função específica para deliverySettings
+  // Funções de SocialLink e Neighborhood podem ser mantidas se você as usa
+  addSocialLink: (socialLink: Omit<SocialLink, "id">) => Promise<void>;
+  updateSocialLink: (id: string, socialLink: Partial<Omit<SocialLink, "id">>) => Promise<void>;
   deleteSocialLink: (id: string) => Promise<void>;
-  updateDeliverySettings: (settings: Partial<DeliverySettings>) => Promise<void>;
   addNeighborhood: (neighborhood: Omit<Neighborhood, "id">) => Promise<void>;
   updateNeighborhood: (id: string, neighborhood: Partial<Omit<Neighborhood, "id">>) => Promise<void>;
   removeNeighborhood: (id: string) => Promise<void>;
@@ -63,256 +68,229 @@ interface StoreSettingsContextType {
 
 const StoreSettingsContext = createContext<StoreSettingsContextType | undefined>(undefined);
 
-// --- IDs FIXOS ---
 const STORE_SETTINGS_ROW_ID = '9119506d-a648-4776-8da8-c36a00c0cfad';
-// const ADMIN_USER_ID = '07aade8d-8c00-45d8-867d-777976529bcb';
 
 export function StoreSettingsProvider({ children }: { children: ReactNode }) {
-  const { isAuthenticated, isLoading: authIsLoading, user } = useAuth();
+  const { isAuthenticated, isLoading: authIsLoading } = useAuth();
   const [storeSettings, setStoreSettings] = useState<StoreSettings>(DEFAULT_STORE_SETTINGS);
   const [storeConfig, setStoreConfig] = useState<StoreConfig>(DEFAULT_STORE_CONFIG);
-  const [isLoading, setIsLoading] = useState(true); // Começa true, gerenciado pelo useEffect
+  const [isLoading, setIsLoading] = useState(true);
 
-  // MODIFICAÇÃO AQUI: Lógica de fetch inicial
+  // Deriva deliverySettings do storeSettings para simplificar
+  const deliverySettings = storeSettings.delivery_settings;
+
   useEffect(() => {
     const fetchStoreSettingsAndConfig = async () => {
-      console.log('[StoreSettingsContext] Iniciando fetch. Auth loading:', authIsLoading, 'Authenticated:', isAuthenticated);
-      setIsLoading(true); // Indica que estamos começando a carregar/verificar
-
+      console.log('[StoreSettingsContext] Iniciando fetch. Auth loading:', authIsLoading);
+      setIsLoading(true);
       try {
-        console.log('[StoreSettingsContext] Tentando buscar configurações do Supabase...');
-        // Busca do Supabase independentemente do status de autenticação inicial
         const { data: settingsData, error: settingsError } = await supabase
           .from('store_settings')
           .select('*')
           .eq('id', STORE_SETTINGS_ROW_ID)
           .maybeSingle();
 
-        if (settingsError && settingsError.code !== 'PGRST116') { // PGRST116: "Actual response rows (0) not equal to expected rows (1)"
+        if (settingsError && settingsError.code !== 'PGRST116') {
           console.error('Erro ao buscar store_settings do Supabase:', settingsError);
-          // Não mostrar toast aqui, pois o fallback para localStorage/default é o comportamento esperado
         }
 
-        let currentSettings = DEFAULT_STORE_SETTINGS;
+        let loadedSettings = DEFAULT_STORE_SETTINGS; // Começa com o default completo
         if (settingsData) {
-          currentSettings = {
-            storeName: settingsData.store_name ?? DEFAULT_STORE_SETTINGS.storeName,
-            logo: settingsData.logo_url ?? DEFAULT_STORE_SETTINGS.logo,
-            banner: settingsData.banner_url ?? DEFAULT_STORE_SETTINGS.banner,
-            primaryColor: settingsData.primary_color ?? DEFAULT_STORE_SETTINGS.primaryColor,
-            secondaryColor: settingsData.secondary_color ?? DEFAULT_STORE_SETTINGS.secondaryColor,
-            description: settingsData.store_description ?? DEFAULT_STORE_SETTINGS.description,
+          loadedSettings = {
+            ...DEFAULT_STORE_SETTINGS, // Garante que todas as chaves default existam
+            ...settingsData,          // Sobrescreve com dados do DB
+            // Garante que sub-objetos sejam mesclados ou usem default se nulos no DB
             socialLinks: settingsData.social_links ?? [],
             contactInfo: settingsData.contact_info ?? DEFAULT_STORE_SETTINGS.contactInfo,
-            whatsappNumber: settingsData.whatsapp_number ?? DEFAULT_STORE_SETTINGS.whatsappNumber,
-            delivery_settings: settingsData.delivery_settings ? (typeof settingsData.delivery_settings === 'string' ? JSON.parse(settingsData.delivery_settings) : settingsData.delivery_settings) : DEFAULT_DELIVERY_SETTINGS,
-          };
-          console.log('[StoreSettingsContext] Configurações (store_settings) carregadas do Supabase:', currentSettings);
-          localStorage.setItem('gordopods-store-settings', JSON.stringify(currentSettings)); // Cache no localStorage
+            delivery_settings: settingsData.delivery_settings 
+              ? (typeof settingsData.delivery_settings === 'string' 
+                  ? JSON.parse(settingsData.delivery_settings) 
+                  : { ...DEFAULT_DELIVERY_SETTINGS, ...settingsData.delivery_settings } // Mescla com default
+                ) 
+              : DEFAULT_DELIVERY_SETTINGS,
+          } as StoreSettings; // Type assertion para garantir a forma
+          console.log('[StoreSettingsContext] Configurações carregadas do Supabase:', loadedSettings);
+          localStorage.setItem('gordopods-store-settings', JSON.stringify(loadedSettings));
         } else {
-          console.log('[StoreSettingsContext] Nenhuma config no Supabase para o ID, tentando localStorage...');
           const storedSettingsStr = localStorage.getItem('gordopods-store-settings');
           if (storedSettingsStr) {
-            currentSettings = JSON.parse(storedSettingsStr);
+            const parsed = JSON.parse(storedSettingsStr);
+            // Garante que o default seja aplicado se o localStorage estiver incompleto
+            loadedSettings = { ...DEFAULT_STORE_SETTINGS, ...parsed, delivery_settings: parsed.delivery_settings ? { ...DEFAULT_DELIVERY_SETTINGS, ...parsed.delivery_settings } : DEFAULT_DELIVERY_SETTINGS };
             console.log('[StoreSettingsContext] Configurações carregadas do localStorage.');
           } else {
-            console.log('[StoreSettingsContext] Nenhuma config no localStorage, usando defaults.');
-            // currentSettings já é DEFAULT_STORE_SETTINGS
-          }
-          if (!currentSettings.delivery_settings) { // Garante que delivery_settings exista
-              currentSettings.delivery_settings = DEFAULT_DELIVERY_SETTINGS;
+            console.log('[StoreSettingsContext] Nenhuma config no localStorage ou Supabase, usando defaults.');
+            // loadedSettings já é DEFAULT_STORE_SETTINGS
           }
         }
-        setStoreSettings(currentSettings);
+        setStoreSettings(loadedSettings);
 
         const storedStoreConfig = localStorage.getItem('gordopods-store-config');
         let currentStoreConfig = DEFAULT_STORE_CONFIG;
-        if (storedStoreConfig) {
-           currentStoreConfig = JSON.parse(storedStoreConfig);
-        }
+        if (storedStoreConfig) currentStoreConfig = { ...DEFAULT_STORE_CONFIG, ...JSON.parse(storedStoreConfig) };
+        
         setStoreConfig(prev => ({
             ...currentStoreConfig,
-            whatsappNumber: currentSettings.whatsappNumber ?? currentStoreConfig.whatsappNumber ?? DEFAULT_STORE_CONFIG.whatsappNumber,
+            whatsappNumber: loadedSettings.whatsappNumber ?? currentStoreConfig.whatsappNumber ?? DEFAULT_STORE_CONFIG.whatsappNumber,
         }));
 
       } catch (error: any) {
-        console.error('Erro crítico ao carregar configurações da loja (bloco catch):', error);
-        toast.error(`Erro inesperado ao carregar configs: ${error.message}`);
-        setStoreSettings(DEFAULT_STORE_SETTINGS); // Fallback para default em caso de erro
-        setStoreConfig(prev => ({...DEFAULT_STORE_CONFIG, whatsappNumber: DEFAULT_STORE_SETTINGS.whatsappNumber ?? DEFAULT_STORE_CONFIG.whatsappNumber}));
+        console.error('Erro crítico ao carregar configurações da loja:', error);
+        toast.error(`Erro ao carregar configs: ${error.message}`);
+        setStoreSettings(DEFAULT_STORE_SETTINGS);
+        setStoreConfig(DEFAULT_STORE_CONFIG);
       } finally {
-        // O isLoading geral só deve ser false quando authIsLoading também for false.
-        // Se authIsLoading ainda é true, o carregamento geral não terminou.
-        if (!authIsLoading) {
-            setIsLoading(false);
-            console.log('[StoreSettingsContext] Fetch de dados e auth resolvido, finalizando loading geral.');
-        } else {
-            console.log('[StoreSettingsContext] Fetch de dados finalizado, aguardando auth resolver para finalizar loading geral.');
-        }
+        if (!authIsLoading) setIsLoading(false);
       }
     };
-
     fetchStoreSettingsAndConfig();
+  }, [authIsLoading]);
 
-  }, [authIsLoading]); // Removido isAuthenticated daqui, authIsLoading é o gatilho principal para reavaliar o estado inicial.
-                       // A lógica interna já lida com isAuthenticated.
-
-  // Efeito adicional para garantir que isLoading seja definido como false
-  // APENAS DEPOIS que authIsLoading se tornar false, caso o fetch termine antes.
   useEffect(() => {
-    if (!authIsLoading && isLoading) {
-      // Se authIsLoading acabou de se tornar false E o fetch já pode ter terminado (mas isLoading ainda é true)
-      // ou o fetch terminou e authIsLoading era true, então agora podemos dizer que o carregamento geral terminou.
-      setIsLoading(false);
-      console.log('[StoreSettingsContext] Auth resolvido (possivelmente após fetch), finalizando loading geral.');
-    }
+    if (!authIsLoading && isLoading) setIsLoading(false);
   }, [authIsLoading, isLoading]);
-  // FIM DA MODIFICAÇÃO
 
-  // Salvar storeSettings (que inclui delivery_settings) no localStorage
   useEffect(() => {
-    if (!isLoading && !authIsLoading) { // Apenas salva se não estiver em algum estado de carregamento
+    if (!isLoading && !authIsLoading) {
       localStorage.setItem('gordopods-store-settings', JSON.stringify(storeSettings));
     }
   }, [storeSettings, isLoading, authIsLoading]);
 
-  // Salvar storeConfig no localStorage
   useEffect(() => {
     if (!isLoading && !authIsLoading) {
       localStorage.setItem('gordopods-store-config', JSON.stringify(storeConfig));
     }
   }, [storeConfig, isLoading, authIsLoading]);
 
-  // --- FUNÇÃO PRINCIPAL DE ATUALIZAÇÃO ---
-  const updateStoreSettings = async (settingsToUpdate: Partial<StoreSettings>) => {
-    if (!isAuthenticated) {
-      toast.error("Você precisa estar logado para atualizar as configurações.");
-      return;
+  const updateStoreSettingsInternal = async (newSettings: StoreSettings) => {
+    if (!isAuthenticated) { toast.error("Login necessário."); return; }
+    setStoreSettings(newSettings); // Atualização otimista
+    if (newSettings.whatsappNumber !== undefined) {
+      setStoreConfig(prev => ({ ...prev, whatsappNumber: newSettings.whatsappNumber! }));
     }
-    const newLocalSettings = { ...storeSettings, ...settingsToUpdate };
-    if (settingsToUpdate.delivery_settings) {
-        newLocalSettings.delivery_settings = {
-            ...storeSettings.delivery_settings,
-            ...settingsToUpdate.delivery_settings
-        };
-    }
-    setStoreSettings(newLocalSettings);
-
-    if (settingsToUpdate.whatsappNumber !== undefined) {
-        setStoreConfig(prev => ({ ...prev, whatsappNumber: settingsToUpdate.whatsappNumber! }));
-    }
-
     try {
       const dbData = {
         id: STORE_SETTINGS_ROW_ID,
-        store_name: newLocalSettings.storeName,
-        logo_url: newLocalSettings.logo,
-        banner_url: newLocalSettings.banner,
-        primary_color: newLocalSettings.primaryColor,
-        secondary_color: newLocalSettings.secondaryColor,
-        store_description: newLocalSettings.description,
-        whatsapp_number: newLocalSettings.whatsappNumber,
-        social_links: newLocalSettings.socialLinks,
-        contact_info: newLocalSettings.contactInfo,
-        delivery_settings: newLocalSettings.delivery_settings,
+        store_name: newSettings.storeName,
+        logo_url: newSettings.logo,
+        banner_url: newSettings.banner,
+        primary_color: newSettings.primaryColor,
+        secondary_color: newSettings.secondaryColor,
+        store_description: newSettings.description,
+        whatsapp_number: newSettings.whatsappNumber,
+        social_links: newSettings.socialLinks,
+        contact_info: newSettings.contactInfo,
+        delivery_settings: newSettings.delivery_settings, // Envia o objeto completo
         updated_at: new Date().toISOString(),
       };
-
-      // ADICIONADO CONSOLE.LOG AQUI
-      console.log('Dados enviados para upsert store_settings:', JSON.stringify(dbData, null, 2));
-
+      console.log('Upserting store_settings:', JSON.stringify(dbData, null, 2));
       const { error } = await supabase.from('store_settings').upsert(dbData, { onConflict: 'id' });
+      if (error) { toast.error(`Erro Supabase: ${error.message}`); throw error; }
+      toast.success('Configurações da loja salvas!');
+    } catch (error: any) { console.error('Erro ao salvar store_settings:', error); }
+  };
 
-      if (error) {
-        console.error('Erro ao salvar store_settings no Supabase:', error);
-        toast.error(`Erro Supabase ao salvar: ${error.message}`);
-        return;
-      }
-      
-      toast.success('Configurações da loja atualizadas no Supabase!');
-    } catch (error: any) {
-      console.error('Erro ao atualizar store_settings (bloco catch):', error);
-      toast.error(`Erro inesperado ao salvar: ${error.message}`);
+  const updateStoreSettings = async (settingsUpdates: Partial<StoreSettings>) => {
+    // Se delivery_settings for passado em settingsUpdates, ele deve ser mesclado corretamente
+    let newDeliverySettings = storeSettings.delivery_settings;
+    if (settingsUpdates.delivery_settings) {
+        newDeliverySettings = {
+            ...storeSettings.delivery_settings, // Default atual
+            ...settingsUpdates.delivery_settings, // Novas parciais
+            // Garante que sub-objetos sejam mesclados e não substituídos se parciais
+            pickup: settingsUpdates.delivery_settings.pickup ? { ...storeSettings.delivery_settings.pickup, ...settingsUpdates.delivery_settings.pickup } : storeSettings.delivery_settings.pickup,
+            fixedRate: settingsUpdates.delivery_settings.fixedRate ? { ...storeSettings.delivery_settings.fixedRate, ...settingsUpdates.delivery_settings.fixedRate } : storeSettings.delivery_settings.fixedRate,
+            neighborhoodRates: settingsUpdates.delivery_settings.neighborhoodRates ? { 
+                ...storeSettings.delivery_settings.neighborhoodRates, 
+                ...settingsUpdates.delivery_settings.neighborhoodRates,
+                neighborhoods: settingsUpdates.delivery_settings.neighborhoodRates.neighborhoods || storeSettings.delivery_settings.neighborhoodRates?.neighborhoods || [] 
+            } : storeSettings.delivery_settings.neighborhoodRates,
+        };
     }
-  };
-
-  // --- FUNÇÕES AUXILIARES ---
-  const addSocialLink = async (socialLink: Omit<SocialLink, "id" | "store_settings_id">) => {
-    if (!isAuthenticated) { toast.error("Login necessário."); return; } // Adicionada verificação
-    const newLinkWithId: SocialLink = { ...socialLink, id: crypto.randomUUID() };
-    const updatedSocialLinks = [...storeSettings.socialLinks, newLinkWithId];
-    await updateStoreSettings({ socialLinks: updatedSocialLinks });
-  };
-
-  const updateSocialLink = async (id: string, socialLinkUpdate: Partial<Omit<SocialLink, "id" | "store_settings_id">>) => {
-    if (!isAuthenticated) { toast.error("Login necessário."); return; } // Adicionada verificação
-    const updatedSocialLinks = storeSettings.socialLinks.map(link =>
-      link.id === id ? { ...link, ...socialLinkUpdate } : link
-    );
-    await updateStoreSettings({ socialLinks: updatedSocialLinks });
-  };
-
-  const deleteSocialLink = async (id: string) => {
-    if (!isAuthenticated) { toast.error("Login necessário."); return; } // Adicionada verificação
-    const updatedSocialLinks = storeSettings.socialLinks.filter(link => link.id !== id);
-    await updateStoreSettings({ socialLinks: updatedSocialLinks });
-  };
-
-  const updateDeliverySettings = async (deliverySettingsUpdate: Partial<DeliverySettings>) => {
-    if (!isAuthenticated) { toast.error("Login necessário."); return; } // Adicionada verificação
-    await updateStoreSettings({ 
-        delivery_settings: { 
-            ...storeSettings.delivery_settings, 
-            ...deliverySettingsUpdate 
-        } 
+    await updateStoreSettingsInternal({ 
+        ...storeSettings, 
+        ...settingsUpdates,
+        delivery_settings: newDeliverySettings // Garante que delivery_settings seja o objeto mesclado
     });
   };
+
+  const updateDeliverySettings = async (deliveryUpdates: Partial<DeliverySettings>) => {
+    // Chama updateStoreSettings, que agora sabe como mesclar delivery_settings aninhado
+    await updateStoreSettings({ delivery_settings: deliveryUpdates });
+  };
   
+  // Funções de SocialLink (ajustadas para Omit<SocialLink, "id"> como no tipo do contexto)
+  const addSocialLink = async (socialLink: Omit<SocialLink, "id">) => {
+    if (!isAuthenticated) { toast.error("Login necessário."); return; }
+    const newLink: SocialLink = { ...socialLink, id: crypto.randomUUID(), platform: socialLink.platform || 'default' }; // Adicionado platform default
+    await updateStoreSettings({ socialLinks: [...storeSettings.socialLinks, newLink] });
+  };
+  const updateSocialLink = async (id: string, socialLinkUpdate: Partial<Omit<SocialLink, "id">>) => {
+    if (!isAuthenticated) { toast.error("Login necessário."); return; }
+    await updateStoreSettings({ socialLinks: storeSettings.socialLinks.map(link => link.id === id ? { ...link, ...socialLinkUpdate } as SocialLink : link )});
+  };
+  const deleteSocialLink = async (id: string) => {
+    if (!isAuthenticated) { toast.error("Login necessário."); return; }
+    await updateStoreSettings({ socialLinks: storeSettings.socialLinks.filter(link => link.id !== id) });
+  };
+
+  // Funções de Neighborhood (operam em storeSettings.delivery_settings.neighborhoodRates.neighborhoods)
   const addNeighborhood = async (neighborhood: Omit<Neighborhood, "id">) => {
-    if (!isAuthenticated) { toast.error("Login necessário."); return; } // Adicionada verificação
+    if (!isAuthenticated) { toast.error("Login necessário."); return; }
+    const currentNeighborhoodRates = storeSettings.delivery_settings.neighborhoodRates || { enabled: true, neighborhoods: [] };
     const newNeighborhoodWithId: Neighborhood = { ...neighborhood, id: crypto.randomUUID() };
-    const updatedNeighborhoods = [...storeSettings.delivery_settings.neighborhoods, newNeighborhoodWithId];
-    await updateDeliverySettings({ neighborhoods: updatedNeighborhoods });
+    await updateDeliverySettings({ 
+        neighborhoodRates: {
+            ...currentNeighborhoodRates,
+            enabled: true, // Garante que esteja habilitado se adicionarmos um bairro
+            neighborhoods: [...(currentNeighborhoodRates.neighborhoods || []), newNeighborhoodWithId]
+        }
+    });
   };
-
   const updateNeighborhood = async (id: string, neighborhoodUpdate: Partial<Omit<Neighborhood, "id">>) => {
-    if (!isAuthenticated) { toast.error("Login necessário."); return; } // Adicionada verificação
-    const updatedNeighborhoods = storeSettings.delivery_settings.neighborhoods.map(n =>
-      n.id === id ? { ...n, ...neighborhoodUpdate } : n
-    );
-    await updateDeliverySettings({ neighborhoods: updatedNeighborhoods });
+    if (!isAuthenticated) { toast.error("Login necessário."); return; }
+    const currentNeighborhoodRates = storeSettings.delivery_settings.neighborhoodRates;
+    if (!currentNeighborhoodRates) return; // Não deveria acontecer se bem inicializado
+    await updateDeliverySettings({
+        neighborhoodRates: {
+            ...currentNeighborhoodRates,
+            neighborhoods: currentNeighborhoodRates.neighborhoods.map(n => n.id === id ? { ...n, ...neighborhoodUpdate } as Neighborhood : n)
+        }
+    });
   };
-
   const removeNeighborhood = async (id: string) => {
-    if (!isAuthenticated) { toast.error("Login necessário."); return; } // Adicionada verificação
-    const updatedNeighborhoods = storeSettings.delivery_settings.neighborhoods.filter(n => n.id !== id);
-    await updateDeliverySettings({ neighborhoods: updatedNeighborhoods });
+    if (!isAuthenticated) { toast.error("Login necessário."); return; }
+    const currentNeighborhoodRates = storeSettings.delivery_settings.neighborhoodRates;
+    if (!currentNeighborhoodRates) return;
+    await updateDeliverySettings({
+        neighborhoodRates: {
+            ...currentNeighborhoodRates,
+            neighborhoods: currentNeighborhoodRates.neighborhoods.filter(n => n.id !== id)
+        }
+    });
   };
 
   const updateStoreConfig = async (config: Partial<StoreConfig>) => {
     const newLocalConfig = { ...storeConfig, ...config };
     setStoreConfig(newLocalConfig);
     if (config.whatsappNumber !== undefined && config.whatsappNumber !== storeSettings.whatsappNumber) {
-      // Apenas atualiza se autenticado, pois mexe com storeSettings
       if (isAuthenticated) {
           await updateStoreSettings({ whatsappNumber: config.whatsappNumber });
-      } else {
-          toast.info("Faça login para salvar o número do WhatsApp nas configurações da loja.");
       }
     }
-    toast.success('Configurações gerais da loja atualizadas (localmente)');
   };
 
   return (
     <StoreSettingsContext.Provider
       value={{
         storeSettings,
+        deliverySettings, // <<< EXPOSTO AQUI
+        isLoading: isLoading || authIsLoading, // Considera ambos para o estado de loading geral
         updateStoreSettings,
-        isLoading: isLoading, // Simplificado, pois o useEffect agora gerencia o isLoading de forma mais robusta
+        updateDeliverySettings,
         addSocialLink,
         updateSocialLink,
         deleteSocialLink,
-        updateDeliverySettings,
         addNeighborhood,
         updateNeighborhood,
         removeNeighborhood,
