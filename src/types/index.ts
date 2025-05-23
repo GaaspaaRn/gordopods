@@ -51,16 +51,16 @@ export interface Product {
 }
 
 export interface SocialLink {
-  id: string; // Adicionado id que estava faltando na sua struct original
-  platform: string; // Adicionado platform que estava faltando na sua struct original
+  id: string; 
+  platform: string; 
   name: string;
   url: string;
 }
 
-export interface ContactInfo { // Adicionada interface para clareza
-  phone: string;
-  email: string;
-  address?: string; // Opcional
+export interface ContactInfo {
+  phone: string | null;
+  email: string | null;
+  address?: string;
 }
 
 export interface Neighborhood {
@@ -70,24 +70,13 @@ export interface Neighborhood {
 }
 
 export interface DeliverySettings {
-  pickup?: { // Tornado opcional para corresponder ao seu DEFAULT_DELIVERY_SETTINGS que tinha tudo
-    enabled: boolean;
-    instructions?: string;
-  };
-  fixedRate?: {
-    enabled: boolean;
-    fee: number;
-    description?: string;
-  };
-  neighborhoodRates?: {
-    enabled: boolean;
-    neighborhoods: Neighborhood[];
-  };
-  // Campos do seu DEFAULT_DELIVERY_SETTINGS que não estavam aqui:
-  deliveryEnabled?: boolean; // Exemplo, se você tiver um controle geral
+  // ... (sua definição de DeliverySettings, parece OK) ...
+  pickup?: { enabled: boolean; instructions?: string; };
+  fixedRate?: { enabled: boolean; fee: number; description?: string; };
+  neighborhoodRates?: { enabled: boolean; neighborhoods: Neighborhood[]; };
+  deliveryEnabled?: boolean;
   minOrderValue?: number;
-  deliveryFeeType?: 'fixed' | 'neighborhood' | 'pickup' | 'none'; // Adicionei 'none' e 'pickup'
-  // fixedFee?: number; // Já dentro de fixedRate
+  deliveryFeeType?: 'fixed' | 'neighborhood' | 'pickup' | 'none';
   dynamicFeePerKm?: number;
   freeDeliveryAbove?: number;
   maxDeliveryRadiusKm?: number;
@@ -95,18 +84,22 @@ export interface DeliverySettings {
   deliveryHours?: Array<{ dayOfWeek: number; open: string; close: string; enabled: boolean }>;
 }
 
-
 export interface StoreSettings {
-  storeName: string;
-  logo: string | null; // Permitir null
-  banner: string | null; // Permitir null
-  primaryColor: string;
-  secondaryColor: string;
-  description: string;
-  socialLinks: SocialLink[];
-  contactInfo: ContactInfo; // Usando a interface definida
-  whatsappNumber: string | null; // Permitir null
-  delivery_settings: DeliverySettings; // <--- JÁ ESTAVA CORRETO AQUI
+  id?: string;                 // Opcional se o DB gera
+  storeName: string;            // Mapeia de store_name
+  logo: string | null;          // Mapeia de logo_url
+  banner: string | null;        // Mapeia de banner_url
+  primaryColor: string;         // Mapeia de primary_color
+  secondaryColor: string;       // Mapeia de secondary_color
+  description: string | null;   // Mapeia de store_description, permitir null
+  socialLinks: SocialLink[] | null; // Mapeia de social_links (JSONB), permitir null
+  contactInfo: ContactInfo | null;  // Mapeia de contact_info (JSONB), permitir null
+  whatsappNumber: string | null;  // Mapeia de whatsapp_number
+  delivery_settings: DeliverySettings; // Mapeia de delivery_settings (JSONB) - assumindo que sempre terá um default
+  facebook_url?: string | null;
+  instagram_url?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
 export interface StoreConfig {
