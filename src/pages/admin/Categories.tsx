@@ -58,7 +58,7 @@ const SortableItem = ({ category }: { category: Category }) => {
 
   const handleSave = () => {
     if (editName.trim()) {
-      updateCategory(category.id, editName.trim());
+      updateCategory(category.id, { name: editName.trim() }); 
       setIsEditDialogOpen(false);
     }
   };
@@ -149,7 +149,7 @@ const SortableItem = ({ category }: { category: Category }) => {
 };
 
 export default function Categories() {
-  const { categories, createCategory, reorderCategories } = useCategories();
+  const { categories, createCategory, } = useCategories();
   
   const [newCategoryName, setNewCategoryName] = useState('');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -171,7 +171,7 @@ export default function Categories() {
       const newIndex = categories.findIndex((cat) => cat.id === over.id);
       
       const newOrder = arrayMove(categories, oldIndex, newIndex);
-      reorderCategories(newOrder);
+      
     }
   };
 
@@ -264,7 +264,7 @@ export default function Categories() {
                   strategy={verticalListSortingStrategy}
                 >
                   {categories
-                    .sort((a, b) => a.order - b.order)
+                    
                     .map((category) => (
                       <SortableItem key={category.id} category={category} />
                     ))}
