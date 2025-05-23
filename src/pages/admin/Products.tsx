@@ -282,7 +282,7 @@ export default function Products() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => toggleProductStatus(product.id)}
+                              onClick={() => toggleProductStatus(product.id, product.active)}
                               className={`${
                                 product.active ? 'text-green-600' : 'text-red-600'
                               }`}

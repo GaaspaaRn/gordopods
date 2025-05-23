@@ -11,10 +11,6 @@ interface CategoryContextType {
   createCategory: (name: string, description?: string, active?: boolean) => Promise<string | null>;
   updateCategory: (id: string, updates: Partial<Omit<Category, 'id' | 'createdAt' | 'updatedAt'>>) => Promise<void>;
   deleteCategory: (id: string) => Promise<void>;
-  // reorderCategories pode não ser necessário se não houver coluna de ordem
-  // Se você quiser ordenar por nome ou data no frontend, isso pode ser feito no momento da exibição.
-  // Se precisar persistir uma ordem, você precisará de uma coluna 'order_position'
-  // reorderCategories: (orderedCategories: Category[]) => Promise<void>; 
 }
 
 const CategoryContext = createContext<CategoryContextType | undefined>(undefined);
@@ -47,12 +43,11 @@ export function CategoryProvider({ children }: { children: ReactNode }) {
           id: item.id,
           name: item.name,
           description: item.description || '',
-          // imageUrl: item.image_url || '', // Removido se não existe
           active: item.active !== undefined ? item.active : true,
           createdAt: item.created_at,
           updatedAt: item.updated_at,
         }));
-
+        currentCategories = categoriesData;
         console.log('[CategoryContext] (loadCategories) Categorias carregadas/recarregadas do Supabase.');
         localStorage.setItem('gordopods-categories', JSON.stringify(currentCategories));
       } else if (!error) {
@@ -133,7 +128,7 @@ export function CategoryProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const updateCategory = async (id: string, updates: Partial<Omit<Category, 'id' | 'createdAt' | 'updatedAt' | 'order' | 'imageUrl'>>) => {
+  const updateCategory = async (id: string, updates: Partial<Omit<Category, 'id' | 'createdAt' | 'updatedAt' | 'order'>>) => {
     if (!isAuthenticated) { toast.error("Login necessário para atualizar categoria."); return; }
     setIsLoading(true);
     try {
@@ -185,21 +180,6 @@ export function CategoryProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Se você não tem uma coluna 'order_position' no DB, a função reorderCategories
-  // não tem como persistir a ordem no backend. Você pode removê-la do contexto
-  // ou implementá-la apenas para reordenar no frontend se for necessário para a UI,
-  // mas a ordem não será salva. Vou comentá-la por enquanto.
-  /*
-  const reorderCategories = async (orderedCategories: Category[]) => {
-    if (!isAuthenticated) { toast.error("Login necessário para reordenar categorias."); return; }
-    // Se não houver coluna de ordem no DB, esta função não pode persistir a ordem.
-    // Você pode atualizar o estado local para refletir a nova ordem na UI,
-    // mas ela será perdida no próximo carregamento.
-    setCategories(orderedCategories.map((cat, index) => ({ ...cat, order: index })));
-    toast.info('Ordem das categorias atualizada localmente (sem persistência no DB).');
-  };
-  */
-
   return (
     <CategoryContext.Provider
       value={{
@@ -208,7 +188,6 @@ export function CategoryProvider({ children }: { children: ReactNode }) {
         createCategory,
         updateCategory,
         deleteCategory,
-        // reorderCategories, // Removido se não houver persistência de ordem
       }}
     >
       {children}

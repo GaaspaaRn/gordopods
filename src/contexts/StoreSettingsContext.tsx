@@ -236,7 +236,6 @@ export function StoreSettingsProvider({ children }: { children: ReactNode }) {
     // Agora socialLinkData deve ter 'platform', 'name', 'url'
     const newLink: SocialLink = { 
         id: crypto.randomUUID(), 
-        platform: socialLinkData.platform, // Assume que platform vem de socialLinkData
         name: socialLinkData.name,
         url: socialLinkData.url
     };

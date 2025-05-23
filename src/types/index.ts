@@ -52,7 +52,6 @@ export interface Product {
 
 export interface SocialLink {
   id: string; 
-  platform: string; 
   name: string;
   url: string;
 }
