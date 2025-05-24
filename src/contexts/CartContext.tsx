@@ -1,8 +1,9 @@
-
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { CartItem, Cart, SelectedVariation, Product, Order } from '@/types';
 import { toast } from 'sonner';
 import { useStoreSettings } from './StoreSettingsContext';
+import { supabase } from '@/integrations/supabase/client'; // *** ADICIONADO IMPORT DO SUPABASE ***
+// import { useAuth } from './AuthContext'; // Descomente se precisar de autenticação para salvar pedidos
 
 interface CartContextType {
   cart: Cart;
@@ -22,11 +23,10 @@ const CartContext = createContext<CartContextType | undefined>(undefined);
 export function CartProvider({ children }: { children: ReactNode }) {
   const [cart, setCart] = useState<Cart>({ items: [], subtotal: 0 });
   const [isCartOpen, setIsCartOpen] = useState(false);
-  
-  // Use o hook useStoreSettings para obter as configurações da loja
   const { storeSettings } = useStoreSettings();
-  
-  // Load cart from localStorage
+  // const { isAuthenticated } = useAuth(); // Descomente se usar autenticação
+
+  // Load cart from localStorage (mantido para o carrinho em si)
   useEffect(() => {
     const storedCart = localStorage.getItem('gordopods-cart');
     if (storedCart) {
@@ -39,7 +39,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Save cart to localStorage
+  // Save cart to localStorage (mantido para o carrinho em si)
   useEffect(() => {
     localStorage.setItem('gordopods-cart', JSON.stringify(cart));
   }, [cart]);
@@ -50,34 +50,26 @@ export function CartProvider({ children }: { children: ReactNode }) {
       (sum, item) => sum + item.totalPrice,
       0
     );
-    
     if (cart.subtotal !== subtotal) {
       setCart(prev => ({ ...prev, subtotal }));
     }
   }, [cart.items]);
 
+  // --- Funções do Carrinho (addToCart, updateQuantity, removeItem, clearCart, toggleCart, etc.) ---
+  // Mantenha as implementações existentes de addToCart, updateQuantity, removeItem, clearCart, toggleCart, closeCart, openCart
+  // Elas não precisam ser alteradas para esta correção.
   const addToCart = (product: Product, quantity: number, selectedVariations: SelectedVariation[]) => {
-    // Calculate the total price with variations
     const totalVariationPrice = selectedVariations.reduce(
       (sum, variation) => sum + variation.priceModifier,
       0
     );
-    
     const itemUnitPrice = product.price + totalVariationPrice;
     const itemTotalPrice = itemUnitPrice * quantity;
-    
-    // Find main image URL
     const mainImage = product.images.find(img => img.isMain) || product.images[0];
     const imageUrl = mainImage?.url;
-    
-    // Check if the same product with the same variations already exists
     const existingItemIndex = cart.items.findIndex(item => {
       if (item.productId !== product.id) return false;
-      
-      // Check if variations match
       if (item.selectedVariations.length !== selectedVariations.length) return false;
-      
-      // Check each variation
       const allVariationsMatch = selectedVariations.every(newVar => 
         item.selectedVariations.some(
           existingVar => 
@@ -85,25 +77,19 @@ export function CartProvider({ children }: { children: ReactNode }) {
             existingVar.optionId === newVar.optionId
         )
       );
-      
       return allVariationsMatch;
     });
-    
     if (existingItemIndex >= 0) {
-      // Update quantity of existing item
       const updatedItems = [...cart.items];
       const existingItem = updatedItems[existingItemIndex];
-      
       updatedItems[existingItemIndex] = {
         ...existingItem,
         quantity: existingItem.quantity + quantity,
         totalPrice: (existingItem.quantity + quantity) * itemUnitPrice
       };
-      
       setCart({ ...cart, items: updatedItems });
       toast.success('Quantidade atualizada no carrinho!');
     } else {
-      // Add new item
       const newItem: CartItem = {
         id: crypto.randomUUID(),
         productId: product.id,
@@ -114,12 +100,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
         totalPrice: itemTotalPrice,
         imageUrl
       };
-      
       setCart({ ...cart, items: [...cart.items, newItem] });
       toast.success('Item adicionado ao carrinho!');
     }
-    
-    // Open the cart when adding an item
     openCart();
   };
 
@@ -127,13 +110,11 @@ export function CartProvider({ children }: { children: ReactNode }) {
     if (quantity < 1) {
       return removeItem(itemId);
     }
-    
     const updatedItems = cart.items.map(item => {
       if (item.id === itemId) {
         const unitPrice = item.basePrice + item.selectedVariations.reduce(
           (sum, variation) => sum + variation.priceModifier, 0
         );
-        
         return {
           ...item,
           quantity,
@@ -142,7 +123,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
       }
       return item;
     });
-    
     setCart({ ...cart, items: updatedItems });
   };
 
@@ -154,43 +134,49 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   const clearCart = () => {
     setCart({ items: [], subtotal: 0 });
-    toast.success('Carrinho esvaziado!');
+    // Não mostra toast aqui, pois é chamado após salvar pedido ou explicitamente
   };
   
   const toggleCart = () => setIsCartOpen(!isCartOpen);
   const closeCart = () => setIsCartOpen(false);
   const openCart = () => setIsCartOpen(true);
-  
-  // Function to save order to database
+
+  // *** FUNÇÃO MODIFICADA PARA SALVAR NO SUPABASE ***
   const saveOrderToDatabase = async (order: Order): Promise<boolean> => {
+    // if (!isAuthenticated) { toast.error("Erro: Autenticação necessária para salvar."); return false; } // Descomente se usar RLS
     try {
-      // This would be replaced with an actual API call in a production environment
-      // For now, we'll simulate the API call and store in localStorage for demo purposes
-      
-      // Generate timestamp for order if not provided
-      if (!order.createdAt) {
-        order.createdAt = new Date().toISOString();
+      // Mapeamento do objeto Order para as colunas do Supabase (conforme SQL fornecido)
+      const orderToInsert = {
+        order_number: order.orderNumber,
+        customer_name: order.customer.name,
+        customer_phone: order.customer.phone,
+        customer_address: order.customer.address ? JSON.stringify(order.customer.address) : null,
+        items: JSON.stringify(order.items),
+        subtotal: order.subtotal,
+        delivery_option: JSON.stringify(order.deliveryOption),
+        total: order.total,
+        notes: order.notes,
+        status: order.status,
+        created_at: order.createdAt,
+        whatsapp_sent: order.whatsappSent,
+        // user_id: auth.user?.id // Adicione se quiser vincular ao usuário logado
+      };
+
+      const { error } = await supabase
+        .from('orders') // Nome exato da sua tabela de pedidos
+        .insert(orderToInsert);
+
+      if (error) {
+        throw error; // Lança o erro para o catch
       }
-      
-      // Retrieve existing orders or initialize empty array
-      const existingOrdersJson = localStorage.getItem('gordopods-orders');
-      const existingOrders = existingOrdersJson ? JSON.parse(existingOrdersJson) : [];
-      
-      // Add the new order
-      existingOrders.push(order);
-      
-      // Save back to localStorage
-      localStorage.setItem('gordopods-orders', JSON.stringify(existingOrders));
-      
-      console.log('Order saved successfully:', order);
-      
-      // Clear cart after successful order
-      clearCart();
-      
+
+      console.log('Order saved successfully to Supabase:', order.orderNumber);
+      // O clearCart() será chamado na função onSubmit do ShoppingCart após esta função retornar true
       return true;
-    } catch (error) {
-      console.error('Failed to save order:', error);
-      toast.error('Falha ao registrar o pedido no sistema.');
+
+    } catch (error: any) {
+      console.error('Failed to save order to Supabase:', error);
+      toast.error(`Falha ao registrar o pedido no sistema: ${error.message}`);
       return false;
     }
   };
@@ -207,7 +193,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         toggleCart,
         closeCart,
         openCart,
-        saveOrderToDatabase
+        saveOrderToDatabase // Função agora salva no Supabase
       }}
     >
       {children}
@@ -222,3 +208,4 @@ export function useCart() {
   }
   return context;
 }
+

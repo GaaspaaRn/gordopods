@@ -22,10 +22,10 @@ export function FixedCheckoutButton({
       {/* Botão fixo para mobile */}
       <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t shadow-lg md:hidden z-50">
         <Button
-          onClick={onClick}
-          className="w-full py-6 text-lg"
-          disabled={disabled || isLoading}
-        >
+  onClick={onClick}
+  className="w-full py-6 text-lg bg-[#0974f1] hover:bg-[#0863c6] text-white"
+  disabled={disabled || isLoading}
+>
           {isLoading ? (
             'Processando...'
           ) : (
@@ -40,10 +40,11 @@ export function FixedCheckoutButton({
       {/* Versão para desktop */}
       <div className="hidden md:block">
         <Button
-          onClick={onClick}
-          className="w-full py-6 text-lg"
-          disabled={disabled || isLoading}
-        >
+  onClick={onClick}
+  className="w-full py-6 text-lg bg-[#0974f1] hover:bg-[#0863c6] text-white"
+  disabled={disabled || isLoading}
+>
+
           {isLoading ? (
             'Processando...'
           ) : (

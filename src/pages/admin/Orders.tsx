@@ -1,3 +1,4 @@
+import { supabase } from '@/integrations/supabase/client';
 
 import React, { useState, useEffect } from 'react';
 import AdminLayout from '@/components/admin/AdminLayout';
@@ -42,24 +43,47 @@ export default function Orders() {
   
   // Load orders from localStorage
   useEffect(() => {
-    const loadOrders = () => {
-      setIsLoading(true);
-      try {
-        const storedOrders = localStorage.getItem('gordopods-orders');
-        if (storedOrders) {
-          const parsedOrders = JSON.parse(storedOrders);
-          setOrders(parsedOrders);
-          setFilteredOrders(parsedOrders);
-        }
-      } catch (error) {
-        console.error('Error loading orders:', error);
-      } finally {
-        setIsLoading(false);
+  const loadOrders = async () => {
+    setIsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('orders') // Nome da sua tabela
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        throw error;
       }
-    };
-    
-    loadOrders();
-  }, []);
+
+      if (data) {
+        const mappedOrders: Order[] = data.map((dbOrder: any) => ({
+          id: dbOrder.id,
+          orderNumber: dbOrder.order_number,
+          customer: {
+            name: dbOrder.customer_name,
+            phone: dbOrder.customer_phone,
+            address: dbOrder.customer_address ? JSON.parse(dbOrder.customer_address) : undefined,
+          },
+          items: JSON.parse(dbOrder.items),
+          subtotal: dbOrder.subtotal,
+          deliveryOption: JSON.parse(dbOrder.delivery_option),
+          total: dbOrder.total,
+          notes: dbOrder.notes,
+          status: dbOrder.status,
+          createdAt: dbOrder.created_at,
+          whatsappSent: dbOrder.whatsapp_sent,
+        }));
+        setOrders(mappedOrders);
+      }
+    } catch (error: any) {
+      console.error('Error loading orders from Supabase:', error);
+      toast.error(`Erro ao carregar pedidos: ${error.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  loadOrders();
+}, []);
   
   // Filter orders when status filter or search term changes
   useEffect(() => {
@@ -90,21 +114,37 @@ export default function Orders() {
   }, [orders, statusFilter, searchTerm]);
   
   // Update order status
-  const updateOrderStatus = (orderId: string, newStatus: 'new' | 'processing' | 'shipped' | 'delivered' | 'cancelled') => {
-    const updatedOrders = orders.map(order => 
-      order.id === orderId ? { ...order, status: newStatus } : order
-    );
-    
-    setOrders(updatedOrders);
-    
-    // Update the selected order too if dialog is open
-    if (selectedOrder && selectedOrder.id === orderId) {
-      setSelectedOrder({ ...selectedOrder, status: newStatus });
+  const updateOrderStatus = async (orderId: string, newStatus: Order['status']) => {
+  const originalOrders = [...orders];
+  const updatedOptimisticOrders = orders.map(order =>
+    order.id === orderId ? { ...order, status: newStatus } : order
+  );
+  setOrders(updatedOptimisticOrders);
+  if (selectedOrder && selectedOrder.id === orderId) {
+    setSelectedOrder({ ...selectedOrder, status: newStatus });
+  }
+
+  try {
+    const { error } = await supabase
+      .from('orders')
+      .update({ status: newStatus, updated_at: new Date().toISOString() })
+      .eq('id', orderId);
+
+    if (error) {
+      throw error;
     }
-    
-    // Save to localStorage
-    localStorage.setItem('gordopods-orders', JSON.stringify(updatedOrders));
-  };
+    toast.success('Status do pedido atualizado!');
+
+  } catch (error: any) {
+    console.error('Error updating order status in Supabase:', error);
+    toast.error(`Erro ao atualizar status: ${error.message}`);
+    setOrders(originalOrders);
+    if (selectedOrder && selectedOrder.id === orderId) {
+      const originalSelected = originalOrders.find(o => o.id === orderId);
+      setSelectedOrder(originalSelected || null);
+    }
+  }
+};
   
   // Format date
   const formatDate = (dateString: string) => {

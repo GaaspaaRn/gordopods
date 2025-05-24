@@ -205,7 +205,7 @@ const ShoppingCart = () => {
 
   return (
     <Sheet open={isCartOpen} onOpenChange={handleSheetOpenChange}>
-      <SheetContent className="w-full sm:max-w-md flex flex-col p-0 dark:bg-slate-950">
+      <SheetContent className="max-w-full overflow-x-hidden sm:max-w-md flex flex-col p-0 dark:bg-slate-950">
         <SheetHeader className="p-4 sm:p-6 pb-3 sm:pb-4 border-b dark:border-slate-800 shrink-0 bg-background dark:bg-slate-900 sticky top-0 z-10">
           <SheetTitle className="flex items-center text-base sm:text-lg">
             <CartIcon className="mr-2" size={20} />
