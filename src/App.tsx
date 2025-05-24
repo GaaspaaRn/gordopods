@@ -54,6 +54,7 @@ const App = () => (
                   <Routes>
                     {/* Public routes */}
                     <Route path="/" element={<StoreFront />} />
+                    <Route path="/login" element={<Login />} />
                     <Route path="/loja" element={<Navigate to="/" replace />} />
                     
                     {/* Protected admin routes - moved to /z1k4adm */}
